@@ -1,65 +1,132 @@
 extends Node3D
-## Virtual Claymation Studio: browser tech test.
+## Virtual Claymation Studio.
 ## Builds the set, lights, clay puppet, cameras, and UI in code,
-## then handles posing body parts and capturing frames.
+## then handles posing, camera moves, onion skinning, undo, and capturing frames.
 
 const ORBIT_SPEED := 0.006
 const TWIST_SPEED := 0.01
+const CAM_TURN_SPEED := 0.004
+const CAM_MOVE_SPEED := 0.004
+const CAM_DOLLY_SPEED := 0.006
+const CAM_ZOOM_SPEED := 0.08
 const PLAYBACK_FPS := 12.0
 const HIGHLIGHT_COLOR := Color(1.0, 0.75, 0.3)
+const ACCENT := Color(0.95, 0.6, 0.2)
 const DEFAULT_YAW := 0.35
 const DEFAULT_PITCH := -0.25
 const DEFAULT_DISTANCE := 4.5
+const WORK_FOV := 50.0
+const SHOT_ASPECT := 16.0 / 9.0
+const MAX_UNDO := 50
+const CAMERA_PICK_RADIUS := 0.22
 
-# Work view: the orbiting camera the animator looks through while posing.
+# Visual layers. Cameras choose which layers they can see.
+const LAYER_WORLD := 1          # Set, puppet, lights: seen by every camera.
+const LAYER_CAMERA_PROP := 2    # The tripod model and its view lines: only seen in Studio View.
+const LAYER_GHOSTS := 4         # Onion skin ghosts: seen while working, never captured.
+const ALL_LAYERS := 1048575
+const SHOT_PREVIEW_MASK := LAYER_WORLD | LAYER_GHOSTS
+const SHOT_CAPTURE_MASK := LAYER_WORLD
+
+const POSE_TOOLS := ["bend", "twist", "move"]
+const CAMERA_TOOLS := ["pan", "truck", "dolly", "zoom"]
+const MODE_INFO := {
+	"bend": ["BEND", Color(0.3, 0.85, 0.35)],
+	"twist": ["TWIST", Color(1.0, 0.85, 0.2)],
+	"move": ["MOVE PUPPET", Color(0.7, 0.45, 1.0)],
+	"camera": ["CAMERA", Color(1.0, 0.25, 0.22)],
+}
+const TOOL_NAMES := {
+	"bend": "Bend", "twist": "Twist", "move": "Move",
+	"pan": "Pan / Tilt", "truck": "Truck / Pedestal", "dolly": "Dolly", "zoom": "Zoom",
+}
+
+# Work view: the camera the animator looks through while posing.
 var work_camera: Camera3D
 var orbit_target := Vector3(0, 0.8, 0)
 var orbit_yaw := DEFAULT_YAW
 var orbit_pitch := DEFAULT_PITCH
 var orbit_distance := DEFAULT_DISTANCE
+var camera_view := false        # true = looking through the shot camera
 
-# Shot camera: the locked "tripod" camera that captures frames.
+# Shot camera: the "tripod" camera that captures frames.
 var shot_viewport: SubViewport
 var shot_camera: Camera3D
+var camera_locked := true
+var camera_default := Transform3D.IDENTITY
+var camera_default_fov := 40.0
+var shot_size := "wide"
+var shot_angle := 0.0
+var camera_warned := false
 
-# Puppet. Each part: {name, joint, materials, shapes, tip}.
-# shapes = [mesh, local point a, local point b, radius] used for click picking.
-# tip = a point on the part, in joint space, used as the handle when a click lands too close to the joint.
+# Tripod model and the lines showing what the camera sees.
+var camera_prop: Node3D
+var camera_pole: MeshInstance3D
+var camera_prop_mat: StandardMaterial3D
+var view_lines: MeshInstance3D
+var view_lines_mesh: ImmediateMesh
+
+# Puppet. Each part: {name, joint, materials, shapes, tip, axis, twist}.
 var puppet_root: Node3D
 var parts: Array[Dictionary] = []
 var rest_pose: Dictionary = {}
 
-# Posing state.
-var current_tool := "bend"            # "bend", "twist", or "move"
+# Tools and dragging.
+var current_tool := "bend"
 var hovered: Dictionary = {}
+var hovered_camera := false
 var active_part: Dictionary = {}
 var highlighted: Dictionary = {}
 var dragging := false
-var drag_mode := ""           # "bend", "twist", "move", or "orbit"
+var drag_mode := ""             # a tool name, "grab_camera", "orbit", or "none"
 var grab_local := Vector3.ZERO
 var grab_screen_offset := Vector2.ZERO
 var move_offset := Vector3.ZERO
 var move_plane_y := 0.0
+var undo_stack: Array[Dictionary] = []
+var undo_pending := false
 
-# Captured frames and playback.
+# Frames, playback, and onion skin.
 var frame_textures: Array[ImageTexture] = []
+var frame_poses: Array[Dictionary] = []
 var capturing := false
 var playing := false
 var play_index := 0
 var play_time := 0.0
+var onion_layers := 1
+var ghosts: Array[Node3D] = []
+var ghost_joints: Array = []    # One Array of joint nodes per ghost, in the same order as parts.
 
 # Shared clay surface texture.
 var clay_normal: NoiseTexture2D
 
 # UI references.
-var frames_label: Label
-var part_label: Label
+var indicator_style: StyleBoxFlat
+var indicator_label: Label
+var status_panel: PanelContainer
+var status_label: Label
+var status_timer := 0.0
 var fps_label: Label
+var lens_label: Label
+var frames_label: Label
+var cursor_label: Label
+var shot_title: Label
+var preview: Control
 var last_frame_rect: TextureRect
 var playback_rect: TextureRect
 var flash_rect: ColorRect
+var camera_backdrop: ColorRect   # Dark background behind the camera screen in Camera View.
+var camera_border: ColorRect
+var camera_screen: TextureRect   # The shot camera's picture, fitted into the open space in Camera View.
+var toolbar: PanelContainer
+var shot_panel: PanelContainer
+var help_panel: PanelContainer
 var play_button: Button
+var lock_button: Button
 var tool_buttons: Dictionary = {}
+var view_buttons: Dictionary = {}
+var onion_buttons: Dictionary = {}
+var camera_controls: Array[Button] = []   # Disabled while the camera is locked.
 
 
 func _ready() -> void:
@@ -70,9 +137,20 @@ func _ready() -> void:
 	_build_puppet()
 	_build_work_camera()
 	_build_shot_camera()
-	_build_ui()
 	_save_rest_pose()
+	_build_ghosts()
+	_build_ui()
+	get_viewport().size_changed.connect(_on_viewport_resized)
+	toolbar.resized.connect(_on_viewport_resized)
+	shot_panel.resized.connect(_on_viewport_resized)
 	_set_tool("bend")
+	_set_onion_layers(1)
+	_set_camera_locked(true)
+	_set_view(false)
+	_sync_camera()
+	# No status message at startup.
+	status_panel.visible = false
+	status_timer = 0.0
 
 
 # ---------------------------------------------------------------- world
@@ -181,16 +259,16 @@ func _build_puppet() -> void:
 	var shoes := Color(0.2, 0.17, 0.15)
 
 	# The puppet faces +Z, toward the shot camera, so its left side is +X.
-	var hips := _make_joint(puppet_root, Vector3(0, 0.88, 0), Vector3.ZERO)
+	var hips := _make_joint(puppet_root, "Hips", Vector3(0, 0.88, 0), Vector3.ZERO)
 	var hips_part := _new_part("Hips (whole body)", hips)
 	hips_part["tip"] = Vector3(0, 0.5, 0)
 	_add_sphere(hips_part, hips, Vector3.ZERO, 0.2, Vector3(1.2, 0.85, 0.95), pants)
 
-	var torso := _make_joint(hips, Vector3(0, 0.06, 0), Vector3.ZERO)
+	var torso := _make_joint(hips, "Torso", Vector3(0, 0.06, 0), Vector3.ZERO)
 	var torso_part := _new_part("Torso", torso)
 	_add_capsule(torso_part, torso, 0.42, 0.21, shirt, 1)
 
-	var head := _make_joint(torso, Vector3(0, 0.5, 0), Vector3.ZERO)
+	var head := _make_joint(torso, "Head", Vector3(0, 0.5, 0), Vector3.ZERO)
 	var head_part := _new_part("Head", head)
 	head_part["tip"] = Vector3(0, 0.3, 0.1)
 	_add_sphere(head_part, head, Vector3(0, 0.2, 0), 0.2, Vector3.ONE, skin)
@@ -202,27 +280,28 @@ func _build_puppet() -> void:
 		var s: float = side_value
 		var side_name: String = "Left" if s > 0.0 else "Right"
 
-		var shoulder := _make_joint(torso, Vector3(0.27 * s, 0.4, 0), Vector3(0, 0, 12.0 * s))
+		var shoulder := _make_joint(torso, side_name + "Shoulder", Vector3(0.27 * s, 0.4, 0), Vector3(0, 0, 12.0 * s))
 		var upper_arm := _new_part(side_name + " Upper Arm", shoulder)
 		_add_capsule(upper_arm, shoulder, 0.3, 0.085, shirt, -1)
 
-		var elbow := _make_joint(shoulder, Vector3(0, -0.3, 0), Vector3.ZERO)
+		var elbow := _make_joint(shoulder, side_name + "Elbow", Vector3(0, -0.3, 0), Vector3.ZERO)
 		var forearm := _new_part(side_name + " Forearm", elbow)
 		_add_capsule(forearm, elbow, 0.26, 0.075, skin, -1)
 		_add_sphere(forearm, elbow, Vector3(0, -0.29, 0), 0.085, Vector3.ONE, skin)
 
-		var hip := _make_joint(hips, Vector3(0.12 * s, -0.04, 0), Vector3.ZERO)
+		var hip := _make_joint(hips, side_name + "Hip", Vector3(0.12 * s, -0.04, 0), Vector3.ZERO)
 		var thigh := _new_part(side_name + " Thigh", hip)
 		_add_capsule(thigh, hip, 0.38, 0.1, pants, -1)
 
-		var knee := _make_joint(hip, Vector3(0, -0.38, 0), Vector3.ZERO)
+		var knee := _make_joint(hip, side_name + "Knee", Vector3(0, -0.38, 0), Vector3.ZERO)
 		var shin := _new_part(side_name + " Shin and Foot", knee)
 		_add_capsule(shin, knee, 0.36, 0.09, pants, -1)
 		_add_sphere(shin, knee, Vector3(0, -0.4, 0.05), 0.1, Vector3(0.9, 0.55, 1.4), shoes)
 
 
-func _make_joint(parent: Node3D, pos: Vector3, rot_deg: Vector3) -> Node3D:
+func _make_joint(parent: Node3D, joint_name: String, pos: Vector3, rot_deg: Vector3) -> Node3D:
 	var joint := Node3D.new()
+	joint.name = joint_name
 	joint.position = pos
 	joint.rotation_degrees = rot_deg
 	parent.add_child(joint)
@@ -286,7 +365,35 @@ func _add_eye(parent: Node3D, pos: Vector3) -> void:
 	parent.add_child(mi)
 
 
+# ---------------------------------------------------------------- poses, default pose, undo
+
+## A snapshot of the scene: where the puppet stands, every joint, every stored twist, and the camera.
+func _get_pose() -> Dictionary:
+	var joints: Array = []
+	var twists: Array = []
+	for part in parts:
+		var joint: Node3D = part["joint"]
+		joints.append(joint.transform)
+		twists.append(part["twist"])
+	return {"root": puppet_root.transform, "joints": joints, "twists": twists,
+		"camera": shot_camera.global_transform, "fov": shot_camera.fov}
+
+
+func _apply_pose(pose: Dictionary) -> void:
+	puppet_root.transform = pose["root"]
+	var joints: Array = pose["joints"]
+	var twists: Array = pose["twists"]
+	for i in parts.size():
+		var joint: Node3D = parts[i]["joint"]
+		joint.transform = joints[i]
+		parts[i]["twist"] = twists[i]
+	shot_camera.global_transform = pose["camera"]
+	shot_camera.fov = pose["fov"]
+	_sync_camera()
+
+
 func _save_rest_pose() -> void:
+	rest_pose.clear()
 	rest_pose[puppet_root] = puppet_root.transform
 	for part in parts:
 		var joint: Node3D = part["joint"]
@@ -294,18 +401,120 @@ func _save_rest_pose() -> void:
 
 
 func _reset_pose() -> void:
+	_push_undo()
 	for node in rest_pose.keys():
 		var n: Node3D = node
 		n.transform = rest_pose[node]
 	for part in parts:
 		part["twist"] = 0.0
+	_flash_status("Puppet reset to its default pose.")
 
 
-# ---------------------------------------------------------------- cameras
+## Makes the current pose the one Reset Pose returns to.
+func _set_default_pose() -> void:
+	_save_rest_pose()
+	# Twist is measured from the default pose, so the new default starts with no extra twist.
+	for part in parts:
+		part["twist"] = 0.0
+	# Older undo steps were measured from the old default, so they no longer apply.
+	undo_stack.clear()
+	_flash_status("Saved this pose as the default. Reset Pose now returns here.")
+
+
+func _push_undo() -> void:
+	undo_stack.append(_get_pose())
+	if undo_stack.size() > MAX_UNDO:
+		undo_stack.pop_front()
+
+
+func _undo() -> void:
+	if undo_stack.is_empty():
+		_flash_status("Nothing to undo.")
+		return
+	var pose: Dictionary = undo_stack.pop_back()
+	_apply_pose(pose)
+	_flash_status("Undid the last change.")
+
+
+# ---------------------------------------------------------------- onion skin
+
+## Ghost copies of the puppet show the poses from the last few captured frames.
+func _build_ghosts() -> void:
+	var tint := [0.55, 0.35, 0.2]
+	for i in 3:
+		var ghost := puppet_root.duplicate() as Node3D
+		ghost.name = "OnionGhost%d" % i
+		add_child(ghost)
+		var joints: Array = []
+		for part in parts:
+			var joint: Node3D = part["joint"]
+			joints.append(ghost.get_node(puppet_root.get_path_to(joint)))
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		# Magenta stands out against the clay, table, and backdrop colors.
+		# No depth test: ghosts show through the puppet, like onion skin on a real frame grabber.
+		mat.no_depth_test = true
+		mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		mat.render_priority = 1
+		mat.albedo_color = Color(1.0, 0.2, 0.75, tint[i])
+		_make_ghost_look(ghost, mat)
+		ghost.visible = false
+		ghosts.append(ghost)
+		ghost_joints.append(joints)
+
+
+func _make_ghost_look(node: Node, mat: Material) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			var mi := child as MeshInstance3D
+			mi.material_override = mat
+			mi.layers = LAYER_GHOSTS
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_make_ghost_look(child, mat)
+
+
+func _update_ghosts() -> void:
+	for i in ghosts.size():
+		var ghost: Node3D = ghosts[i]
+		var frame_index := frame_poses.size() - 1 - i
+		if i < onion_layers and frame_index >= 0 and not playing:
+			var pose: Dictionary = frame_poses[frame_index]
+			ghost.transform = pose["root"]
+			var joints: Array = ghost_joints[i]
+			var transforms: Array = pose["joints"]
+			for k in joints.size():
+				var j: Node3D = joints[k]
+				j.transform = transforms[k]
+			ghost.visible = true
+		else:
+			ghost.visible = false
+
+
+func _set_onion_layers(count: int) -> void:
+	onion_layers = count
+	var key := str(count)
+	if onion_buttons.has(key):
+		var b: Button = onion_buttons[key]
+		b.button_pressed = true
+	_update_ghosts()
+
+
+func _cycle_onion_layers() -> void:
+	match onion_layers:
+		0:
+			_set_onion_layers(1)
+		1:
+			_set_onion_layers(3)
+		_:
+			_set_onion_layers(0)
+
+
+# ---------------------------------------------------------------- work view
 
 func _build_work_camera() -> void:
 	work_camera = Camera3D.new()
-	work_camera.fov = 50.0
+	work_camera.fov = WORK_FOV
 	add_child(work_camera)
 	work_camera.current = true
 	_update_orbit()
@@ -321,59 +530,143 @@ func _update_orbit() -> void:
 
 
 func _orbit(rel: Vector2) -> void:
+	if camera_view:
+		return
 	orbit_yaw -= rel.x * ORBIT_SPEED
 	orbit_pitch -= rel.y * ORBIT_SPEED
 	_update_orbit()
 
 
 ## factor lets trackpad scrolling zoom in small, smooth steps.
-func _zoom(multiplier: float, factor: float) -> void:
+func _view_zoom(multiplier: float, factor: float) -> void:
+	if camera_view:
+		_flash_status("View In and View Out work in Studio View. To change the shot itself, unlock the camera and use Dolly or Zoom.")
+		return
 	var f := factor if factor > 0.0 else 1.0
 	orbit_distance *= pow(multiplier, f)
 	_update_orbit()
 
 
 func _reset_view() -> void:
+	if camera_view:
+		_set_view(false)
 	orbit_yaw = DEFAULT_YAW
 	orbit_pitch = DEFAULT_PITCH
 	orbit_distance = DEFAULT_DISTANCE
 	_update_orbit()
 
 
+## Studio View: orbit freely around the set.
+## Camera View: the shot camera's picture fills the open space between the toolbar and the capture
+## controls, so the whole frame is always visible and nothing covers it.
+func _set_view(through_camera: bool) -> void:
+	camera_view = through_camera
+	if camera_view:
+		# The main view is hidden behind the camera screen, so draw nothing there.
+		work_camera.cull_mask = 0
+	else:
+		work_camera.cull_mask = ALL_LAYERS
+		_update_orbit()
+	hovered_camera = false
+	_set_camera_glow(false)
+	if camera_screen != null:
+		camera_backdrop.visible = camera_view
+		camera_border.visible = camera_view
+		camera_screen.visible = camera_view
+		preview.visible = not camera_view
+		shot_title.text = "You're looking through the shot camera" if camera_view \
+			else "SHOT CAMERA: this is what gets captured"
+		var key := "camera" if camera_view else "studio"
+		var b: Button = view_buttons[key]
+		b.button_pressed = true
+		_layout_camera_screen.call_deferred()
+
+
+## Fits the 16:9 camera screen into the space below the toolbar and above the capture controls.
+func _layout_camera_screen() -> void:
+	if not camera_view or camera_screen == null:
+		return
+	var vs := get_viewport().get_visible_rect().size
+	var top := toolbar.get_global_rect().end.y + 8.0
+	var bottom := shot_panel.get_global_rect().position.y - 8.0
+	var left := 10.0
+	var right := vs.x - 10.0
+	var w := right - left
+	var h := bottom - top
+	if w <= 0.0 or h <= 0.0:
+		return
+	var fw := w
+	var fh := fw / SHOT_ASPECT
+	if fh > h:
+		fh = h
+		fw = fh * SHOT_ASPECT
+	var rect := Rect2(left + (w - fw) * 0.5, top + (h - fh) * 0.5, fw, fh)
+	camera_screen.position = rect.position
+	camera_screen.size = rect.size
+	camera_border.position = rect.position - Vector2(2, 2)
+	camera_border.size = rect.size + Vector2(4, 4)
+
+
+func _on_viewport_resized() -> void:
+	_layout_camera_screen.call_deferred()
+
+
+## The camera the cursor is working through: the shot camera in Camera View, otherwise the work view.
+func _active_cam() -> Camera3D:
+	return shot_camera if camera_view else work_camera
+
+
+## Converts a mouse position into the active camera's own picture coordinates.
+func _cam_coords(screen_pos: Vector2) -> Vector2:
+	if not camera_view or camera_screen.size.x <= 0.0:
+		return screen_pos
+	var local := (screen_pos - camera_screen.position) / camera_screen.size
+	return local * Vector2(shot_viewport.size)
+
+
+func _toggle_view() -> void:
+	_set_view(not camera_view)
+
+
+# ---------------------------------------------------------------- shot camera
+
 func _build_shot_camera() -> void:
 	shot_viewport = SubViewport.new()
-	shot_viewport.size = Vector2i(640, 360)
+	shot_viewport.size = Vector2i(1280, 720)  # Frames are captured at 720p.
 	shot_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	shot_viewport.msaa_3d = Viewport.MSAA_2X
 	add_child(shot_viewport)
 
 	shot_camera = Camera3D.new()
 	shot_camera.fov = 40.0
-	shot_camera.cull_mask = 1  # Layer 1 only, so the camera prop (layer 2) never shows up in shots.
+	shot_camera.cull_mask = SHOT_PREVIEW_MASK
 	shot_viewport.add_child(shot_camera)
 	shot_camera.position = Vector3(0.0, 1.0, 3.3)
 	shot_camera.look_at(Vector3(0, 0.78, 0), Vector3.UP)
 	shot_camera.current = true
+	camera_default = shot_camera.global_transform
+	camera_default_fov = shot_camera.fov
 
 	_build_camera_prop()
 
 
-## A visible camera on a tripod in the work view, so students can see where the shot is taken from.
+## A visible camera on a tripod in Studio View, plus lines showing what it sees.
 func _build_camera_prop() -> void:
-	var prop_mat := StandardMaterial3D.new()
-	prop_mat.albedo_color = Color(0.08, 0.08, 0.09)
-	prop_mat.roughness = 0.4
+	camera_prop_mat = StandardMaterial3D.new()
+	camera_prop_mat.albedo_color = Color(0.08, 0.08, 0.09)
+	camera_prop_mat.roughness = 0.4
+	camera_prop_mat.emission = Color(1.0, 0.3, 0.25)
+	camera_prop_mat.emission_energy_multiplier = 0.6
 
-	var prop := Node3D.new()
-	add_child(prop)
-	prop.global_transform = shot_camera.global_transform
+	camera_prop = Node3D.new()
+	add_child(camera_prop)
 
 	var body := MeshInstance3D.new()
 	var body_mesh := BoxMesh.new()
 	body_mesh.size = Vector3(0.32, 0.22, 0.2)
 	body.mesh = body_mesh
 	body.position = Vector3(0, 0, 0.12)
-	prop.add_child(body)
+	camera_prop.add_child(body)
 
 	var lens := MeshInstance3D.new()
 	var lens_mesh := CylinderMesh.new()
@@ -383,23 +676,194 @@ func _build_camera_prop() -> void:
 	lens.mesh = lens_mesh
 	lens.rotation_degrees = Vector3(90, 0, 0)
 	lens.position = Vector3(0, 0, -0.06)
-	prop.add_child(lens)
+	camera_prop.add_child(lens)
 
-	var pole := MeshInstance3D.new()
+	# The pole is 1 unit tall and stretched to the camera's height in _sync_camera.
+	camera_pole = MeshInstance3D.new()
 	var pole_mesh := CylinderMesh.new()
-	var pole_height := shot_camera.position.y - 0.11
 	pole_mesh.top_radius = 0.025
 	pole_mesh.bottom_radius = 0.025
-	pole_mesh.height = pole_height
-	pole.mesh = pole_mesh
-	pole.position = Vector3(shot_camera.position.x, pole_height * 0.5, shot_camera.position.z + 0.12)
-	add_child(pole)
+	pole_mesh.height = 1.0
+	camera_pole.mesh = pole_mesh
+	add_child(camera_pole)
 
-	for mi in [body, lens, pole]:
+	for mi in [body, lens, camera_pole]:
 		var m: MeshInstance3D = mi
-		m.material_override = prop_mat
-		m.layers = 2
+		m.material_override = camera_prop_mat
+		m.layers = LAYER_CAMERA_PROP
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	view_lines_mesh = ImmediateMesh.new()
+	view_lines = MeshInstance3D.new()
+	view_lines.mesh = view_lines_mesh
+	var line_mat := StandardMaterial3D.new()
+	line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	line_mat.albedo_color = Color(1.0, 0.35, 0.3, 0.8)
+	line_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	view_lines.material_override = line_mat
+	view_lines.layers = LAYER_CAMERA_PROP
+	view_lines.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(view_lines)
+
+
+## Keeps the tripod model, view lines, lens readout, and Camera View in step with the shot camera.
+func _sync_camera() -> void:
+	var t := shot_camera.global_transform
+	camera_prop.global_transform = t
+	var height := maxf(t.origin.y - 0.11, 0.05)
+	var behind := t.origin + t.basis.z * 0.12
+	camera_pole.position = Vector3(behind.x, height * 0.5, behind.z)
+	camera_pole.scale = Vector3(1, height, 1)
+
+	# Lines from the lens out to the edges of the frame.
+	var dist := 2.5
+	var half_h := tan(deg_to_rad(shot_camera.fov) * 0.5) * dist
+	var half_w := half_h * SHOT_ASPECT
+	var o := t.origin
+	var corners: Array[Vector3] = []
+	for c in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var v: Vector2 = c
+		corners.append(t * Vector3(v.x * half_w, v.y * half_h, -dist))
+	view_lines_mesh.clear_surfaces()
+	view_lines_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	for i in 4:
+		view_lines_mesh.surface_add_vertex(o)
+		view_lines_mesh.surface_add_vertex(corners[i])
+		view_lines_mesh.surface_add_vertex(corners[i])
+		view_lines_mesh.surface_add_vertex(corners[(i + 1) % 4])
+	view_lines_mesh.surface_end()
+
+	if lens_label != null:
+		lens_label.text = "Lens: %d mm" % roundi(_focal_length_mm())
+
+
+## The lens as a photographer would describe it (35mm-equivalent focal length).
+func _focal_length_mm() -> float:
+	return 12.0 / tan(deg_to_rad(shot_camera.fov) * 0.5)
+
+
+func _set_camera_locked(locked: bool) -> void:
+	camera_locked = locked
+	if lock_button != null:
+		lock_button.set_pressed_no_signal(not locked)
+		lock_button.text = "Unlock Camera" if locked else "Lock Camera"
+	for b in camera_controls:
+		b.disabled = locked
+	if locked and current_tool in CAMERA_TOOLS:
+		_set_tool("bend")
+	if status_label != null:
+		_flash_status("Camera locked. It can't be moved by accident." if locked
+			else "Camera unlocked. Use the camera tools, or grab the tripod in Studio View.")
+
+
+func _on_lock_toggled(unlocked: bool) -> void:
+	_set_camera_locked(not unlocked)
+
+
+## Warns once per camera move if frames have already been captured with the old framing.
+func _warn_camera_moved() -> void:
+	if camera_warned or frame_textures.is_empty():
+		return
+	camera_warned = true
+	_flash_status("Heads up: moving the camera after capturing frames makes your animation jump. "
+		+ "Start a new shot if you want a new angle.", 6.0)
+
+
+func _camera_change_begins() -> void:
+	_push_undo()
+	camera_warned = false
+	_warn_camera_moved()
+
+
+func _clamp_camera() -> void:
+	var p := shot_camera.global_position
+	p.x = clampf(p.x, -3.4, 3.4)
+	p.y = clampf(p.y, 0.25, 4.0)
+	p.z = clampf(p.z, -2.1, 4.1)
+	shot_camera.global_position = p
+
+
+func _camera_drag(rel: Vector2) -> void:
+	var t := shot_camera.global_transform
+	match drag_mode:
+		"pan":
+			# Swivel in place: left/right turns (pan), up/down tips (tilt). The horizon stays level.
+			var b := Basis(Vector3.UP, -rel.x * CAM_TURN_SPEED) * t.basis
+			var tilted := b * Basis(Vector3.RIGHT, -rel.y * CAM_TURN_SPEED)
+			if absf((tilted * Vector3.FORWARD).y) < 0.97:
+				b = tilted
+			t.basis = b.orthonormalized()
+		"truck":
+			# Slide left/right (truck) and up/down (pedestal) without turning.
+			var right := t.basis.x.normalized()
+			t.origin += right * rel.x * CAM_MOVE_SPEED + Vector3.UP * -rel.y * CAM_MOVE_SPEED
+		"dolly":
+			# Move toward or away from where the camera points.
+			var forward := -t.basis.z.normalized()
+			t.origin += forward * -rel.y * CAM_DOLLY_SPEED
+		"zoom":
+			# Change the lens without moving the camera. Drag up to zoom in.
+			shot_camera.fov = clampf(shot_camera.fov + rel.y * CAM_ZOOM_SPEED, 12.0, 75.0)
+	shot_camera.global_transform = t
+	_clamp_camera()
+	_sync_camera()
+
+
+## Shot size and angle presets frame the puppet from the camera's current side.
+func _frame_shot(size_name: String, angle_deg: float) -> void:
+	if camera_locked:
+		_flash_status("Unlock the camera to change the shot.")
+		return
+	shot_size = size_name
+	shot_angle = angle_deg
+	_camera_change_begins()
+	var subject: Vector3
+	var frame_height: float
+	var torso: Node3D = parts[1]["joint"]
+	var head: Node3D = parts[2]["joint"]
+	match size_name:
+		"wide":
+			subject = puppet_root.global_position + Vector3(0, 0.82, 0)
+			frame_height = 2.3
+		"medium":
+			subject = torso.global_position + Vector3(0, 0.35, 0)
+			frame_height = 1.15
+		_:
+			subject = head.to_global(Vector3(0, 0.2, 0))
+			frame_height = 0.6
+	var distance := (frame_height * 0.5) / tan(deg_to_rad(shot_camera.fov) * 0.5)
+	var flat := shot_camera.global_position - subject
+	flat.y = 0.0
+	if flat.length() < 0.01:
+		flat = Vector3(0, 0, 1)
+	flat = flat.normalized()
+	var a := deg_to_rad(angle_deg)
+	var pos := subject + flat * cos(a) * distance + Vector3.UP * sin(a) * distance
+	shot_camera.global_position = pos
+	_clamp_camera()
+	shot_camera.look_at(subject, Vector3.UP)
+	_sync_camera()
+
+
+func _reset_camera() -> void:
+	if camera_locked:
+		_flash_status("Unlock the camera to reset it.")
+		return
+	_camera_change_begins()
+	shot_camera.global_transform = camera_default
+	shot_camera.fov = camera_default_fov
+	_sync_camera()
+	_flash_status("Camera back to its default position.")
+
+
+func _set_camera_default() -> void:
+	camera_default = shot_camera.global_transform
+	camera_default_fov = shot_camera.fov
+	_flash_status("Saved this camera position as the default. Reset Camera now returns here.")
+
+
+func _set_camera_glow(on: bool) -> void:
+	camera_prop_mat.emission_enabled = on
 
 
 # ---------------------------------------------------------------- input
@@ -413,9 +877,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_end_drag(mb.position)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_zoom(0.9, mb.factor)
+			_view_zoom(0.9, mb.factor)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_zoom(1.1, mb.factor)
+			_view_zoom(1.1, mb.factor)
 
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
@@ -426,6 +890,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				# The button was released somewhere we didn't hear about (e.g. outside the window).
 				_end_drag(mm.position)
 				return
+			if undo_pending:
+				undo_pending = false
+				if drag_mode in CAMERA_TOOLS or drag_mode == "grab_camera":
+					_camera_change_begins()
+				else:
+					_push_undo()
 			match drag_mode:
 				"bend":
 					_bend(mm.position)
@@ -433,14 +903,21 @@ func _unhandled_input(event: InputEvent) -> void:
 					_twist(mm.relative)
 				"move":
 					_move_to(mm.position)
+				"grab_camera":
+					_grab_camera_to(mm.position)
 				"orbit":
 					_orbit(mm.relative)
+				"pan", "truck", "dolly", "zoom":
+					_camera_drag(mm.relative)
 		else:
 			_update_hover(mm.position)
 
 	elif event is InputEventKey:
 		var k := event as InputEventKey
 		if k.pressed and not k.echo:
+			if k.keycode == KEY_Z and (k.ctrl_pressed or k.meta_pressed):
+				_undo()
+				return
 			match k.keycode:
 				KEY_SPACE:
 					_capture_frame()
@@ -452,30 +929,64 @@ func _unhandled_input(event: InputEvent) -> void:
 					_set_tool("twist")
 				KEY_M:
 					_set_tool("move")
+				KEY_C:
+					_toggle_view()
+				KEY_O:
+					_cycle_onion_layers()
 				KEY_V:
 					_reset_view()
+				KEY_L:
+					_set_camera_locked(not camera_locked)
 				KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
-					_zoom(0.85, 1.0)
+					_view_zoom(0.85, 1.0)
 				KEY_MINUS, KEY_KP_SUBTRACT:
-					_zoom(1.15, 1.0)
+					_view_zoom(1.15, 1.0)
 
 
-## Press on the puppet: start using the current tool on that part.
-## Press on empty space: start looking around.
 func _begin_drag(screen_pos: Vector2) -> void:
-	var hit := _pick_part(screen_pos)
 	dragging = true
-	if hit.is_empty():
-		drag_mode = "orbit"
+	undo_pending = false
+
+	# Camera tools move the camera wherever you drag.
+	if current_tool in CAMERA_TOOLS:
+		drag_mode = current_tool
+		undo_pending = true
 		Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+		return
+
+	var hit := _pick_part(screen_pos)
+	var cam_t := _pick_camera(screen_pos)
+	var hit_t: float = hit["t"] if not hit.is_empty() else INF
+
+	# Grabbing the tripod in Studio View slides it across the table.
+	if cam_t < hit_t:
+		if camera_locked:
+			drag_mode = "none"
+			_flash_status("The camera is locked. Press Unlock Camera (L) to move it.")
+			return
+		var origin := work_camera.project_ray_origin(screen_pos)
+		var dir := work_camera.project_ray_normal(screen_pos)
+		var cam_point := origin + dir * cam_t
+		move_plane_y = cam_point.y
+		move_offset = shot_camera.global_position - cam_point
+		drag_mode = "grab_camera"
+		undo_pending = true
+		_update_indicator()
+		Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+		return
+
+	if hit.is_empty():
+		drag_mode = "none" if camera_view else "orbit"
+		if not camera_view:
+			Input.set_default_cursor_shape(Input.CURSOR_DRAG)
 		return
 
 	var part: Dictionary = hit["part"]
 	var point: Vector3 = hit["point"]
 	active_part = part
 	_set_highlight(part)
-	part_label.text = "Part: " + str(part["name"])
 	drag_mode = current_tool
+	undo_pending = true
 	Input.set_default_cursor_shape(Input.CURSOR_DRAG)
 
 	match current_tool:
@@ -487,7 +998,7 @@ func _begin_drag(screen_pos: Vector2) -> void:
 				grab_local = part["tip"]
 			# Remember where the grabbed spot sits relative to the cursor on screen,
 			# so the part never jumps when the drag starts.
-			grab_screen_offset = work_camera.unproject_position(joint.to_global(grab_local)) - screen_pos
+			grab_screen_offset = _active_cam().unproject_position(joint.to_global(grab_local)) - _cam_coords(screen_pos)
 		"move":
 			move_plane_y = point.y
 			move_offset = puppet_root.position - point
@@ -496,34 +1007,48 @@ func _begin_drag(screen_pos: Vector2) -> void:
 func _end_drag(screen_pos: Vector2) -> void:
 	dragging = false
 	drag_mode = ""
+	undo_pending = false
 	active_part = {}
 	hovered = {}
+	hovered_camera = false
+	_update_indicator()
 	_update_hover(screen_pos)
 
 
 func _update_hover(screen_pos: Vector2) -> void:
 	if capturing:
 		return
-	var hit := _pick_part(screen_pos)
-	var part: Dictionary = {}
-	if not hit.is_empty():
-		part = hit["part"]
-	if is_same(part, hovered):
+	if current_tool in CAMERA_TOOLS:
+		_set_highlight({})
+		hovered = {}
+		_set_camera_glow(false)
+		Input.set_default_cursor_shape(Input.CURSOR_MOVE)
 		return
-	hovered = part
-	_set_highlight(part)
-	if part.is_empty():
-		part_label.text = "Part: (none)"
-		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
-	else:
-		part_label.text = "Part: " + str(part["name"])
+	var hit := _pick_part(screen_pos)
+	var cam_t := _pick_camera(screen_pos)
+	var hit_t: float = hit["t"] if not hit.is_empty() else INF
+	var over_camera := cam_t < hit_t
+	var part: Dictionary = {}
+	if not hit.is_empty() and not over_camera:
+		part = hit["part"]
+	if over_camera != hovered_camera:
+		hovered_camera = over_camera
+		_set_camera_glow(over_camera)
+	if not is_same(part, hovered):
+		hovered = part
+		_set_highlight(part)
+	if over_camera or not part.is_empty():
 		Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND)
+	else:
+		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 
-## Returns {"part": part, "point": world point where the click landed}, or {} for a miss.
+## Returns {"part", "point", "t"} for the nearest puppet part under the cursor, or {} for a miss.
 func _pick_part(screen_pos: Vector2) -> Dictionary:
-	var origin := work_camera.project_ray_origin(screen_pos)
-	var dir := work_camera.project_ray_normal(screen_pos)
+	var cam := _active_cam()
+	var p := _cam_coords(screen_pos)
+	var origin := cam.project_ray_origin(p)
+	var dir := cam.project_ray_normal(p)
 	var far_point := origin + dir * 100.0
 	var best: Dictionary = {}
 	var best_t := INF
@@ -535,27 +1060,48 @@ func _pick_part(screen_pos: Vector2) -> Dictionary:
 			var radius: float = shape[3]
 			var a := mi.global_transform * local_a
 			var b := mi.global_transform * local_b
-			var on_ray: Vector3
-			var on_shape: Vector3
-			if a.is_equal_approx(b):
-				on_shape = a
-				on_ray = Geometry3D.get_closest_point_to_segment(a, origin, far_point)
-			else:
-				var pts := Geometry3D.get_closest_points_between_segments(origin, far_point, a, b)
-				on_ray = pts[0]
-				on_shape = pts[1]
-			var d := on_ray.distance_to(on_shape)
-			if d <= radius:
-				var t := origin.distance_to(on_ray) - sqrt(radius * radius - d * d)
-				if t < best_t:
-					best_t = t
-					best = {"part": part, "point": origin + dir * t}
+			var t := _ray_capsule(origin, far_point, a, b, radius)
+			if t < best_t:
+				best_t = t
+				best = {"part": part, "point": origin + dir * t, "t": t}
 	return best
 
 
-func _ray_hit_plane(screen_pos: Vector2, plane: Plane) -> Variant:
+## Distance along the cursor ray to the tripod, or INF if the cursor isn't on it (or it's hidden).
+func _pick_camera(screen_pos: Vector2) -> float:
+	if camera_view:
+		return INF
 	var origin := work_camera.project_ray_origin(screen_pos)
 	var dir := work_camera.project_ray_normal(screen_pos)
+	var far_point := origin + dir * 100.0
+	var cam_pos := shot_camera.global_position
+	var head_t := _ray_capsule(origin, far_point, cam_pos, cam_pos, CAMERA_PICK_RADIUS)
+	var pole_t := _ray_capsule(origin, far_point, cam_pos, Vector3(cam_pos.x, 0.0, cam_pos.z), 0.06)
+	return minf(head_t, pole_t)
+
+
+## Distance along a ray to a capsule (a sphere when a == b), or INF for a miss.
+func _ray_capsule(origin: Vector3, far_point: Vector3, a: Vector3, b: Vector3, radius: float) -> float:
+	var on_ray: Vector3
+	var on_shape: Vector3
+	if a.is_equal_approx(b):
+		on_shape = a
+		on_ray = Geometry3D.get_closest_point_to_segment(a, origin, far_point)
+	else:
+		var pts := Geometry3D.get_closest_points_between_segments(origin, far_point, a, b)
+		on_ray = pts[0]
+		on_shape = pts[1]
+	var d := on_ray.distance_to(on_shape)
+	if d > radius:
+		return INF
+	return origin.distance_to(on_ray) - sqrt(radius * radius - d * d)
+
+
+func _ray_hit_plane(screen_pos: Vector2, plane: Plane) -> Variant:
+	var cam := _active_cam()
+	var p := _cam_coords(screen_pos)
+	var origin := cam.project_ray_origin(p)
+	var dir := cam.project_ray_normal(p)
 	return plane.intersects_ray(origin, dir)
 
 
@@ -588,9 +1134,10 @@ func _bend(screen_pos: Vector2) -> void:
 	var reach := grab.distance_to(pivot)
 	if reach < 0.03:
 		return
-	var aim := screen_pos + grab_screen_offset
-	var origin := work_camera.project_ray_origin(aim)
-	var dir := work_camera.project_ray_normal(aim)
+	var cam := _active_cam()
+	var aim := _cam_coords(screen_pos) + grab_screen_offset
+	var origin := cam.project_ray_origin(aim)
+	var dir := cam.project_ray_normal(aim)
 	var target := _ray_to_sphere(origin, dir, pivot, reach, grab)
 	var from_v := grab - pivot
 	var to_v := target - pivot
@@ -616,8 +1163,8 @@ func _bone_direction(part: Dictionary) -> Vector3:
 	return (joint.global_transform.basis * axis).normalized()
 
 
-## Poses a part so it points along world_dir, using its rest pose and its stored twist.
-## pose = (swing from the rest direction to the new direction) * rest pose * (twist around the part's length)
+## Poses a part so it points along world_dir, using its default pose and its stored twist.
+## pose = (swing from the default direction to the new direction) * default pose * (twist around the part's length)
 func _aim_part(part: Dictionary, world_dir: Vector3) -> void:
 	var joint: Node3D = part["joint"]
 	var parent := joint.get_parent() as Node3D
@@ -627,7 +1174,7 @@ func _aim_part(part: Dictionary, world_dir: Vector3) -> void:
 	var axis: Vector3 = part["axis"]
 	var rest_dir := (rest.basis * axis).normalized()
 	if rest_dir.dot(local_dir) < -0.9995:
-		# Pointing exactly opposite its rest direction has no unique swing; nudge it slightly.
+		# Pointing exactly opposite its default direction has no unique swing; nudge it slightly.
 		local_dir = (local_dir + rest.basis.z.normalized() * 0.02).normalized()
 	var swing := Basis(Quaternion(rest_dir, local_dir))
 	var twist := Basis(Vector3.UP, float(part["twist"]))
@@ -647,6 +1194,19 @@ func _move_to(screen_pos: Vector2) -> void:
 	puppet_root.position = p
 
 
+## Grabbing the tripod: it slides across the table under the cursor, keeping its height and aim.
+func _grab_camera_to(screen_pos: Vector2) -> void:
+	var hit_v: Variant = _ray_hit_plane(screen_pos, Plane(Vector3.UP, move_plane_y))
+	if hit_v == null:
+		return
+	var target: Vector3 = hit_v
+	var p := target + move_offset
+	p.y = shot_camera.global_position.y
+	shot_camera.global_position = p
+	_clamp_camera()
+	_sync_camera()
+
+
 func _set_highlight(part: Dictionary) -> void:
 	if not highlighted.is_empty():
 		_apply_glow(highlighted, false)
@@ -664,9 +1224,30 @@ func _apply_glow(part: Dictionary, on: bool) -> void:
 
 
 func _set_tool(tool_name: String) -> void:
+	if tool_name in CAMERA_TOOLS and camera_locked:
+		_flash_status("Unlock the camera (L) to use the camera tools.")
+		tool_name = current_tool if current_tool in POSE_TOOLS else "bend"
 	current_tool = tool_name
-	var b: Button = tool_buttons[tool_name]
-	b.button_pressed = true
+	if tool_buttons.has(tool_name):
+		var b: Button = tool_buttons[tool_name]
+		b.button_pressed = true
+	_update_indicator()
+
+
+## The indicator light: green Bend, yellow Twist, purple Move Puppet, red Camera.
+func _update_indicator() -> void:
+	if indicator_style == null:
+		return
+	var mode := current_tool
+	if current_tool in CAMERA_TOOLS or drag_mode == "grab_camera":
+		mode = "camera"
+	var info: Array = MODE_INFO[mode]
+	var color: Color = info[1]
+	indicator_style.bg_color = color
+	indicator_style.shadow_color = Color(color, 0.6)
+	indicator_label.text = info[0]
+	indicator_label.add_theme_color_override("font_color", color)
+	cursor_label.add_theme_color_override("font_color", color)
 
 
 # ---------------------------------------------------------------- frames
@@ -677,56 +1258,117 @@ func _capture_frame() -> void:
 	capturing = true
 	if playing:
 		_stop_playback()
-	# Hide the hover glow so it never ends up in a captured frame.
+	# Hide the hover glow and the onion skin ghosts so they never end up in a captured frame.
 	_set_highlight({})
+	shot_camera.cull_mask = SHOT_CAPTURE_MASK
 	await RenderingServer.frame_post_draw
 	var img := shot_viewport.get_texture().get_image()
+	shot_camera.cull_mask = SHOT_PREVIEW_MASK
 	capturing = false
 	var restore: Dictionary = active_part if not active_part.is_empty() else hovered
 	_set_highlight(restore)
+
 	frame_textures.append(ImageTexture.create_from_image(img))
-	frames_label.text = "Frames captured: %d" % frame_textures.size()
-	last_frame_rect.texture = frame_textures[frame_textures.size() - 1]
+	frame_poses.append(_get_pose())
+	_update_frame_info()
+	_update_ghosts()
 	flash_rect.color = Color(1, 1, 1, 0.8)
 	var tween := create_tween()
 	tween.tween_property(flash_rect, "color:a", 0.0, 0.25)
+
+
+func _delete_last_frame() -> void:
+	if frame_textures.is_empty():
+		_flash_status("No frames to delete yet.")
+		return
+	if playing:
+		_stop_playback()
+	frame_textures.pop_back()
+	frame_poses.pop_back()
+	_update_frame_info()
+	_update_ghosts()
+	_flash_status("Deleted the last frame.")
+
+
+func _update_frame_info() -> void:
+	frames_label.text = "Frames: %d" % frame_textures.size()
+	if frame_textures.is_empty():
+		last_frame_rect.texture = null
+	else:
+		last_frame_rect.texture = frame_textures[frame_textures.size() - 1]
 
 
 func _toggle_playback() -> void:
 	if playing:
 		_stop_playback()
 	elif frame_textures.size() > 0:
+		if camera_view:
+			_set_view(false)
 		playing = true
 		play_index = 0
 		play_time = 0.0
 		playback_rect.texture = frame_textures[0]
 		playback_rect.visible = true
 		play_button.text = "Stop (P)"
+		_update_ghosts()
+	else:
+		_flash_status("Capture some frames first, then press Play.")
 
 
 func _stop_playback() -> void:
 	playing = false
 	playback_rect.visible = false
 	play_button.text = "Play (P)"
+	_update_ghosts()
+
+
+func _flash_status(text: String, seconds: float = 3.0) -> void:
+	if status_label == null:
+		return
+	status_label.text = text
+	status_panel.visible = true
+	status_timer = seconds
 
 
 func _process(delta: float) -> void:
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
 
-	var turn := 0.0
-	var tilt := 0.0
-	if Input.is_key_pressed(KEY_LEFT):
-		turn -= 1.0
-	if Input.is_key_pressed(KEY_RIGHT):
-		turn += 1.0
-	if Input.is_key_pressed(KEY_UP):
-		tilt -= 1.0
-	if Input.is_key_pressed(KEY_DOWN):
-		tilt += 1.0
-	if turn != 0.0 or tilt != 0.0:
-		orbit_yaw += turn * 1.5 * delta
-		orbit_pitch += tilt * 1.0 * delta
-		_update_orbit()
+	if status_timer > 0.0:
+		status_timer -= delta
+		if status_timer <= 0.0:
+			status_panel.visible = false
+
+	# The red view lines only show while the camera is being worked on.
+	view_lines.visible = current_tool in CAMERA_TOOLS or hovered_camera or drag_mode == "grab_camera"
+
+	# Small label by the cursor naming what a drag will do.
+	var label_text := ""
+	if current_tool in CAMERA_TOOLS:
+		label_text = TOOL_NAMES[current_tool]
+	elif hovered_camera or drag_mode == "grab_camera":
+		label_text = "Move Camera"
+	elif not hovered.is_empty() or (dragging and drag_mode == current_tool):
+		label_text = TOOL_NAMES[current_tool]
+	cursor_label.visible = label_text != ""
+	if cursor_label.visible:
+		cursor_label.text = label_text
+		cursor_label.position = get_viewport().get_mouse_position() + Vector2(18, 14)
+
+	if not camera_view:
+		var turn := 0.0
+		var tilt := 0.0
+		if Input.is_key_pressed(KEY_LEFT):
+			turn -= 1.0
+		if Input.is_key_pressed(KEY_RIGHT):
+			turn += 1.0
+		if Input.is_key_pressed(KEY_UP):
+			tilt -= 1.0
+		if Input.is_key_pressed(KEY_DOWN):
+			tilt += 1.0
+		if turn != 0.0 or tilt != 0.0:
+			orbit_yaw += turn * 1.5 * delta
+			orbit_pitch += tilt * 1.0 * delta
+			_update_orbit()
 
 	if playing and frame_textures.size() > 0:
 		play_time += delta
@@ -739,105 +1381,281 @@ func _process(delta: float) -> void:
 
 # ---------------------------------------------------------------- UI
 
+func _make_theme() -> Theme:
+	var t := Theme.new()
+	t.default_font_size = 15
+
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.22, 0.23, 0.27)
+	normal.set_corner_radius_all(6)
+	normal.content_margin_left = 12
+	normal.content_margin_right = 12
+	normal.content_margin_top = 7
+	normal.content_margin_bottom = 7
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.32, 0.33, 0.38)
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = ACCENT
+	var disabled := normal.duplicate() as StyleBoxFlat
+	disabled.bg_color = Color(0.16, 0.16, 0.19)
+	t.set_stylebox("normal", "Button", normal)
+	t.set_stylebox("hover", "Button", hover)
+	t.set_stylebox("pressed", "Button", pressed)
+	t.set_stylebox("hover_pressed", "Button", pressed)
+	t.set_stylebox("disabled", "Button", disabled)
+	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	t.set_color("font_pressed_color", "Button", Color(0.1, 0.08, 0.05))
+	t.set_color("font_hover_pressed_color", "Button", Color(0.1, 0.08, 0.05))
+	t.set_color("font_disabled_color", "Button", Color(0.45, 0.46, 0.5))
+
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color(0.1, 0.1, 0.12, 0.92)
+	panel.set_corner_radius_all(8)
+	panel.content_margin_left = 10
+	panel.content_margin_right = 10
+	panel.content_margin_top = 8
+	panel.content_margin_bottom = 8
+	t.set_stylebox("panel", "PanelContainer", panel)
+
+	var tip := StyleBoxFlat.new()
+	tip.bg_color = Color(0.06, 0.06, 0.08, 0.96)
+	tip.set_corner_radius_all(6)
+	tip.content_margin_left = 8
+	tip.content_margin_right = 8
+	tip.content_margin_top = 5
+	tip.content_margin_bottom = 5
+	t.set_stylebox("panel", "TooltipPanel", tip)
+	return t
+
+
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 
+	# Camera View screen: a dark background with the shot camera's picture fitted on top.
+	camera_backdrop = ColorRect.new()
+	camera_backdrop.color = Color(0.05, 0.05, 0.06)
+	camera_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	camera_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	camera_backdrop.visible = false
+	layer.add_child(camera_backdrop)
+	camera_border = ColorRect.new()
+	camera_border.color = Color(0.85, 0.85, 0.88)
+	camera_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	camera_border.visible = false
+	layer.add_child(camera_border)
+	camera_screen = TextureRect.new()
+	camera_screen.texture = shot_viewport.get_texture()
+	camera_screen.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	camera_screen.stretch_mode = TextureRect.STRETCH_SCALE
+	camera_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	camera_screen.visible = false
+	layer.add_child(camera_screen)
+
 	var margin := MarginContainer.new()
+	margin.theme = _make_theme()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
-		margin.add_theme_constant_override(side, 12)
+		margin.add_theme_constant_override(side, 10)
 	layer.add_child(margin)
 
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", 8)
 	margin.add_child(column)
 
-	# Top left: title, tools, view controls, status.
-	var top_row := HBoxContainer.new()
-	top_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(top_row)
+	# ---- Toolbar: indicator light, then tool/view/pose buttons, then camera buttons.
+	toolbar = PanelContainer.new()
+	toolbar.mouse_filter = Control.MOUSE_FILTER_STOP
+	column.add_child(toolbar)
+	var toolbar_rows := VBoxContainer.new()
+	toolbar_rows.add_theme_constant_override("separation", 6)
+	toolbar.add_child(toolbar_rows)
 
-	var help := PanelContainer.new()
-	help.mouse_filter = Control.MOUSE_FILTER_STOP
-	top_row.add_child(help)
-	var help_box := VBoxContainer.new()
-	help.add_child(help_box)
+	var row1 := HBoxContainer.new()
+	row1.add_theme_constant_override("separation", 10)
+	toolbar_rows.add_child(row1)
 
-	var title := Label.new()
-	title.text = "Virtual Claymation Studio: Tech Test"
-	title.add_theme_font_size_override("font_size", 18)
-	help_box.add_child(title)
+	var indicator_box := HBoxContainer.new()
+	indicator_box.tooltip_text = "Mode light: green = Bend, yellow = Twist, purple = Move Puppet, red = Camera."
+	indicator_box.mouse_filter = Control.MOUSE_FILTER_STOP
+	indicator_box.custom_minimum_size = Vector2(150, 0)
+	row1.add_child(indicator_box)
+	var light := Panel.new()
+	light.custom_minimum_size = Vector2(16, 16)
+	light.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	light.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	indicator_style = StyleBoxFlat.new()
+	indicator_style.set_corner_radius_all(8)
+	indicator_style.shadow_size = 6
+	light.add_theme_stylebox_override("panel", indicator_style)
+	indicator_box.add_child(light)
+	indicator_label = Label.new()
+	indicator_label.add_theme_font_size_override("font_size", 16)
+	indicator_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	indicator_box.add_child(indicator_label)
 
-	var tool_row := HBoxContainer.new()
-	help_box.add_child(tool_row)
-	var tool_title := Label.new()
-	tool_title.text = "Tool:"
-	tool_row.add_child(tool_title)
-	var group := ButtonGroup.new()
-	for entry in [["bend", "Bend (B)"], ["twist", "Twist (T)"], ["move", "Move Puppet (M)"]]:
-		var tool_name: String = entry[0]
-		var b := _make_button(entry[1])
+	row1.add_child(VSeparator.new())
+
+	var flow := HFlowContainer.new()
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 6)
+	row1.add_child(flow)
+
+	var tool_group := ButtonGroup.new()
+	_add_group_label(flow, "TOOL")
+	for entry in [
+		["bend", "Bend (B)", "Drag a body part to pull it into place. The spot you grab follows your cursor."],
+		["twist", "Twist (T)", "Drag a body part left or right to turn it around its own length, like turning a head."],
+		["move", "Move Puppet (M)", "Drag the puppet to slide it across the table."],
+	]:
+		var b := _add_tool_button(flow, tool_group, entry[0], entry[1], entry[2])
+		tool_buttons[entry[0]] = b
+
+	_add_divider(flow)
+	_add_group_label(flow, "VIEW")
+	var view_group := ButtonGroup.new()
+	for entry in [
+		["studio", "Studio View", "Walk around the set. Drag empty space to look around, scroll to move closer."],
+		["camera", "Camera View (C)", "Look through the shot camera. The darkened edges are outside the frame."],
+	]:
+		var key: String = entry[0]
+		var b := _make_button(entry[1], entry[2])
 		b.toggle_mode = true
-		b.button_group = group
-		b.pressed.connect(_set_tool.bind(tool_name))
-		tool_row.add_child(b)
-		tool_buttons[tool_name] = b
+		b.button_group = view_group
+		b.pressed.connect(_set_view.bind(key == "camera"))
+		flow.add_child(b)
+		view_buttons[key] = b
+	_add_button(flow, "View In", "Move your view closer (Studio View). Does not change the shot.", _view_zoom.bind(0.85, 1.0))
+	_add_button(flow, "View Out", "Move your view farther away (Studio View). Does not change the shot.", _view_zoom.bind(1.15, 1.0))
+	_add_button(flow, "Reset View (V)", "Return to the starting Studio View.", _reset_view)
 
-	var tips := Label.new()
-	tips.text = "Bend: drag a body part to pull it into place\n" \
-		+ "Twist: drag left or right to turn a part\n" \
-		+ "Move Puppet: drag the puppet across the table\n" \
-		+ "Drag empty space to look around. Scroll to zoom.\n" \
-		+ "Space: capture a frame    P: play"
-	help_box.add_child(tips)
+	_add_divider(flow)
+	_add_group_label(flow, "POSE")
+	_add_button(flow, "Undo (Ctrl+Z)", "Undo the last posing or camera change.", _undo)
+	_add_button(flow, "Reset Pose", "Put the puppet back in its default pose.", _reset_pose)
+	_add_button(flow, "Set as Default Pose", "Make the current pose the one Reset Pose returns to.", _set_default_pose)
 
-	var view_row := HBoxContainer.new()
-	help_box.add_child(view_row)
-	var view_title := Label.new()
-	view_title.text = "View:"
-	view_row.add_child(view_title)
-	var zoom_in := _make_button("Zoom +")
-	zoom_in.pressed.connect(_zoom.bind(0.85, 1.0))
-	view_row.add_child(zoom_in)
-	var zoom_out := _make_button("Zoom -")
-	zoom_out.pressed.connect(_zoom.bind(1.15, 1.0))
-	view_row.add_child(zoom_out)
-	var reset_view := _make_button("Reset View (V)")
-	reset_view.pressed.connect(_reset_view)
-	view_row.add_child(reset_view)
-
-	part_label = Label.new()
-	part_label.text = "Part: (none)"
-	help_box.add_child(part_label)
-
+	_add_divider(flow)
+	var help_button := _make_button("Help", "Show or hide the list of controls.")
+	help_button.toggle_mode = true
+	help_button.toggled.connect(func(on: bool) -> void: help_panel.visible = on)
+	flow.add_child(help_button)
 	fps_label = Label.new()
-	help_box.add_child(fps_label)
+	fps_label.add_theme_font_size_override("font_size", 12)
+	fps_label.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
+	flow.add_child(fps_label)
+
+	# Camera row.
+	var cam_flow := HFlowContainer.new()
+	cam_flow.add_theme_constant_override("h_separation", 6)
+	cam_flow.add_theme_constant_override("v_separation", 6)
+	toolbar_rows.add_child(cam_flow)
+
+	_add_group_label(cam_flow, "CAMERA")
+	lock_button = _make_button("Unlock Camera", "The camera stays locked so it can't be bumped by accident, like a tripod lock. Unlock it to move it. (L)")
+	lock_button.toggle_mode = true
+	lock_button.toggled.connect(_on_lock_toggled)
+	cam_flow.add_child(lock_button)
+
+	_add_divider(cam_flow)
+	_add_group_label(cam_flow, "MOVE")
+	for entry in [
+		["pan", "Pan / Tilt", "Swivel the camera in place. Drag left/right to pan, up/down to tilt."],
+		["truck", "Truck / Pedestal", "Slide the camera without turning it. Left/right is a truck, up/down is a pedestal."],
+		["dolly", "Dolly", "Move the camera toward or away from what it's pointing at. Drag up to dolly in."],
+		["zoom", "Zoom", "Change the lens without moving the camera. Drag up to zoom in. Compare it with a dolly!"],
+	]:
+		var b := _add_tool_button(cam_flow, tool_group, entry[0], entry[1], entry[2])
+		tool_buttons[entry[0]] = b
+		camera_controls.append(b)
+
+	_add_divider(cam_flow)
+	_add_group_label(cam_flow, "SHOT")
+	for entry in [
+		["wide", "Wide", "Frame the puppet's whole body with room around it."],
+		["medium", "Medium", "Frame the puppet from about the waist up."],
+		["close", "Close-up", "Frame the puppet's face."],
+	]:
+		var size_name: String = entry[0]
+		var b := _add_button(cam_flow, entry[1], entry[2], func() -> void: _frame_shot(size_name, shot_angle))
+		camera_controls.append(b)
+
+	_add_divider(cam_flow)
+	_add_group_label(cam_flow, "ANGLE")
+	for entry in [
+		[30.0, "High", "Look down on the puppet. It can make a character seem small or weak."],
+		[3.0, "Eye Level", "Look at the puppet straight on. The most neutral angle."],
+		[-15.0, "Low", "Look up at the puppet. It can make a character seem big or powerful."],
+	]:
+		var angle: float = entry[0]
+		var b := _add_button(cam_flow, entry[1], entry[2], func() -> void: _frame_shot(shot_size, angle))
+		camera_controls.append(b)
+
+	_add_divider(cam_flow)
+	camera_controls.append(_add_button(cam_flow, "Reset Camera", "Put the camera back in its default position.", _reset_camera))
+	camera_controls.append(_add_button(cam_flow, "Set Camera Default", "Make the current camera position the one Reset Camera returns to.", _set_camera_default))
+	lens_label = Label.new()
+	lens_label.tooltip_text = "The lens focal length. Lower numbers are wider; higher numbers zoom in."
+	lens_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	cam_flow.add_child(lens_label)
+
+	# ---- Status messages (appear briefly under the toolbar).
+	var status_row := HBoxContainer.new()
+	status_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(status_row)
+	status_panel = PanelContainer.new()
+	status_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	status_panel.visible = false
+	status_row.add_child(status_panel)
+	status_label = Label.new()
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_label.custom_minimum_size = Vector2(420, 0)
+	status_panel.add_child(status_label)
+
+	# ---- Help panel (hidden until Help is pressed).
+	help_panel = PanelContainer.new()
+	help_panel.visible = false
+	help_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	help_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	column.add_child(help_panel)
+	var help_text := Label.new()
+	help_text.text = "HOW TO USE THE STUDIO\n" \
+		+ "Hover over any button to see what it does.\n" \
+		+ "The light at the top left shows your mode: green Bend, yellow Twist, purple Move Puppet, red Camera.\n" \
+		+ "Hover over the puppet: the part you'd grab glows.\n" \
+		+ "Drag empty space, right-drag, or use arrow keys to look around (Studio View).\n" \
+		+ "Camera View (C): pose while looking through the shot camera.\n" \
+		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
+		+ "Onion skin (O): see faint ghosts of your last 1 or 3 frames.\n" \
+		+ "Space: capture a frame. P: play your animation. Ctrl+Z: undo."
+	help_panel.add_child(help_text)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(spacer)
 
-	# Bottom right: shot camera preview and capture controls.
+	# ---- Bottom right: shot camera preview, capture, playback, onion skin.
 	var bottom_row := HBoxContainer.new()
 	bottom_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bottom_row.alignment = BoxContainer.ALIGNMENT_END
 	column.add_child(bottom_row)
 
-	var shot_panel := PanelContainer.new()
+	shot_panel = PanelContainer.new()
 	shot_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	bottom_row.add_child(shot_panel)
 	var shot_box := VBoxContainer.new()
+	shot_box.add_theme_constant_override("separation", 6)
 	shot_panel.add_child(shot_box)
 
-	var shot_title := Label.new()
-	shot_title.text = "SHOT CAMERA: this is what gets captured"
+	shot_title = Label.new()
 	shot_box.add_child(shot_title)
 
-	var preview := Control.new()
-	preview.custom_minimum_size = Vector2(480, 270)
+	preview = Control.new()
+	preview.custom_minimum_size = Vector2(448, 252)
 	shot_box.add_child(preview)
 
 	var live := TextureRect.new()
@@ -856,38 +1674,99 @@ func _build_ui() -> void:
 	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview.add_child(flash_rect)
 
-	var buttons := HBoxContainer.new()
-	shot_box.add_child(buttons)
-
-	var capture_button := _make_button("Capture Frame (Space)")
+	var capture_button := _make_button("CAPTURE FRAME (Space)", "Take a picture through the shot camera. Each picture is one frame of your animation.")
+	capture_button.add_theme_font_size_override("font_size", 18)
+	var capture_style := StyleBoxFlat.new()
+	capture_style.bg_color = Color(0.8, 0.22, 0.2)
+	capture_style.set_corner_radius_all(6)
+	capture_style.content_margin_top = 10
+	capture_style.content_margin_bottom = 10
+	var capture_hover := capture_style.duplicate() as StyleBoxFlat
+	capture_hover.bg_color = Color(0.9, 0.3, 0.26)
+	capture_button.add_theme_stylebox_override("normal", capture_style)
+	capture_button.add_theme_stylebox_override("hover", capture_hover)
+	capture_button.add_theme_stylebox_override("pressed", capture_hover)
 	capture_button.pressed.connect(_capture_frame)
-	buttons.add_child(capture_button)
+	shot_box.add_child(capture_button)
 
-	play_button = _make_button("Play (P)")
-	play_button.pressed.connect(_toggle_playback)
-	buttons.add_child(play_button)
-
-	var reset_button := _make_button("Reset Pose")
-	reset_button.pressed.connect(_reset_pose)
-	buttons.add_child(reset_button)
-
-	var status_row := HBoxContainer.new()
-	shot_box.add_child(status_row)
-
+	var play_row := HBoxContainer.new()
+	shot_box.add_child(play_row)
+	play_button = _add_button(play_row, "Play (P)", "Play your frames as an animation at 12 frames per second.", _toggle_playback)
+	_add_button(play_row, "Delete Last Frame", "Remove the most recent frame.", _delete_last_frame)
 	frames_label = Label.new()
-	frames_label.text = "Frames captured: 0"
 	frames_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_row.add_child(frames_label)
+	frames_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	play_row.add_child(frames_label)
 
-	var last_label := Label.new()
-	last_label.text = "Last frame:"
-	status_row.add_child(last_label)
-
+	var onion_row := HBoxContainer.new()
+	shot_box.add_child(onion_row)
+	var onion_title := Label.new()
+	onion_title.text = "Onion skin (O):"
+	onion_title.tooltip_text = "Shows faint pink ghosts of your last frames so you can space your movements evenly."
+	onion_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	onion_row.add_child(onion_title)
+	var onion_group := ButtonGroup.new()
+	for entry in [
+		["0", "Off", "Hide the onion skin ghosts."],
+		["1", "1 frame", "Show a ghost of your last frame."],
+		["3", "3 frames", "Show ghosts of your last three frames, fading as they get older."],
+	]:
+		var key: String = entry[0]
+		var b := _make_button(entry[1], entry[2])
+		b.toggle_mode = true
+		b.button_group = onion_group
+		b.pressed.connect(_set_onion_layers.bind(int(key)))
+		onion_row.add_child(b)
+		onion_buttons[key] = b
+	var onion_spacer := Control.new()
+	onion_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	onion_row.add_child(onion_spacer)
 	last_frame_rect = TextureRect.new()
-	last_frame_rect.custom_minimum_size = Vector2(128, 72)
+	last_frame_rect.custom_minimum_size = Vector2(96, 54)
 	last_frame_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	last_frame_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	status_row.add_child(last_frame_rect)
+	last_frame_rect.tooltip_text = "Your most recent frame."
+	onion_row.add_child(last_frame_rect)
+
+	# ---- Name of what a drag will do, following the cursor.
+	cursor_label = Label.new()
+	cursor_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cursor_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	cursor_label.add_theme_constant_override("outline_size", 4)
+	cursor_label.visible = false
+	layer.add_child(cursor_label)
+
+	_update_frame_info()
+
+
+func _add_group_label(parent: Control, text: String) -> void:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", Color(0.65, 0.67, 0.72))
+	parent.add_child(label)
+
+
+func _add_divider(parent: Control) -> void:
+	var sep := VSeparator.new()
+	sep.custom_minimum_size = Vector2(10, 0)
+	parent.add_child(sep)
+
+
+func _add_tool_button(parent: Control, group: ButtonGroup, tool_name: String, text: String, tip: String) -> Button:
+	var b := _make_button(text, tip)
+	b.toggle_mode = true
+	b.button_group = group
+	b.pressed.connect(_set_tool.bind(tool_name))
+	parent.add_child(b)
+	return b
+
+
+func _add_button(parent: Control, text: String, tip: String, action: Callable) -> Button:
+	var b := _make_button(text, tip)
+	b.pressed.connect(action)
+	parent.add_child(b)
+	return b
 
 
 func _fill_preview(rect: TextureRect) -> void:
@@ -897,8 +1776,9 @@ func _fill_preview(rect: TextureRect) -> void:
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
-func _make_button(label_text: String) -> Button:
+func _make_button(label_text: String, tip: String = "") -> Button:
 	var b := Button.new()
 	b.text = label_text
+	b.tooltip_text = tip
 	b.focus_mode = Control.FOCUS_NONE
 	return b

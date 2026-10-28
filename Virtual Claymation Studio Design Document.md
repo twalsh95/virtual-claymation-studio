@@ -1,6 +1,6 @@
 # Virtual Claymation Studio: Design Document
 
-Last updated: Oct 26, 2026 · Tom Walsh
+Last updated: Oct 28, 2026 · Tom Walsh
 
 Live version: https://claude.ai/artifact/71Rhm3k47PjK2EtJmjt1LB
 
@@ -60,6 +60,26 @@ Version one is the minimum worth bringing to class: even without the game layer,
 10. **Export:** numbered image sequence
 
 Also in version one: student sign-in with cloud saves, and a teacher view showing level progress and student shots. Later milestones: character lab (build and save custom puppets), free-form clay lump.
+
+### Feature decisions
+
+Decided after the first tech test (Oct 27). The tech test ran with no errors at 53 to 60 FPS in a browser on a school laptop.
+
+| Feature | Decision | Status |
+| --- | --- | --- |
+| Tool controls | Large on-screen Bend, Twist, and Move Puppet buttons plus keyboard shortcuts; hover tooltips on every button; an indicator light shows the mode (green Bend, yellow Twist, purple Move Puppet, red Camera, blue reserved for lights) | In testing |
+| Camera controls | On-screen zoom and reset buttons; drag empty space to look around, no modifier keys | In testing |
+| Studio and Camera View | Toggle between orbiting the set and posing through the shot camera, with 16:9 frame guides | In testing |
+| Onion skin | Ghost copies of the puppet from the last 1 or 3 frames, never captured | In testing |
+| Undo | Undo for posing changes; Delete Last Frame for captures | In testing |
+| Default pose | Set as Default Pose; Reset Pose returns to it | In testing |
+| Posing without dragging | Button and keyboard posing in fixed small steps (accessibility, reinforces small increments) | Planned |
+| Character colors | Quick color changes for shirt, pants, skin, and shoes | Planned |
+| Moving the shot camera | Locked by default. Camera View tools use real terms (Pan/Tilt, Truck/Pedestal, Dolly, Zoom with a mm lens readout); in Studio View students grab and slide the tripod. Shot size and angle presets, a default camera position, and a warning (not a block) when moved after frames are captured | In testing |
+| Lighting | Fully adjustable lights, with a Lock Lighting option for the scene to keep lighting consistent | Planned |
+| Backdrops | Preset backdrops shown as physical backdrops in the studio, plus a Make a Backdrop option using students' own images | Planned |
+| Green screen | A green backdrop option, included as a utility rather than a taught skill | Planned |
+| Export | Downloadable numbered frames per shot | Planned |
 
 ## Gamified tutorial
 
