@@ -9,7 +9,9 @@ const CAM_TURN_SPEED := 0.004
 const CAM_MOVE_SPEED := 0.004
 const CAM_DOLLY_SPEED := 0.006
 const CAM_ZOOM_SPEED := 0.08
-const PLAYBACK_FPS := 12.0
+# Rates Premiere Pro offers for sequences, so every export imports cleanly.
+const FRAME_RATES := [10, 12, 15, 24, 30, 60]
+const DEFAULT_FPS := 12
 const HIGHLIGHT_COLOR := Color(1.0, 0.75, 0.3)
 const ACCENT := Color(0.95, 0.6, 0.2)
 const DEFAULT_YAW := 0.35
@@ -126,6 +128,14 @@ var lock_button: Button
 var tool_buttons: Dictionary = {}
 var view_buttons: Dictionary = {}
 var onion_buttons: Dictionary = {}
+
+# Frame rate and export.
+var playback_fps := DEFAULT_FPS
+var export_panel: PanelContainer
+var export_name: LineEdit
+var export_status: Label
+var export_format := "png"
+var exporting := false
 var camera_controls: Array[Button] = []   # Disabled while the camera is locked.
 
 
@@ -944,6 +954,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _begin_drag(screen_pos: Vector2) -> void:
+	# Clicking the scene takes focus away from any text box, so keyboard shortcuts work again.
+	get_viewport().gui_release_focus()
 	dragging = true
 	undo_pending = false
 
@@ -1354,7 +1366,8 @@ func _process(delta: float) -> void:
 		cursor_label.text = label_text
 		cursor_label.position = get_viewport().get_mouse_position() + Vector2(18, 14)
 
-	if not camera_view:
+	# Arrow keys look around, unless the student is typing in a text box.
+	if not camera_view and not (get_viewport().gui_get_focus_owner() is LineEdit):
 		var turn := 0.0
 		var tilt := 0.0
 		if Input.is_key_pressed(KEY_LEFT):
@@ -1372,7 +1385,7 @@ func _process(delta: float) -> void:
 
 	if playing and frame_textures.size() > 0:
 		play_time += delta
-		var step := 1.0 / PLAYBACK_FPS
+		var step := 1.0 / float(playback_fps)
 		while play_time >= step:
 			play_time -= step
 			play_index = (play_index + 1) % frame_textures.size()
@@ -1644,8 +1657,11 @@ func _build_ui() -> void:
 	bottom_row.alignment = BoxContainer.ALIGNMENT_END
 	column.add_child(bottom_row)
 
+	_build_export_panel(bottom_row)
+
 	shot_panel = PanelContainer.new()
 	shot_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	shot_panel.size_flags_vertical = Control.SIZE_SHRINK_END
 	bottom_row.add_child(shot_panel)
 	var shot_box := VBoxContainer.new()
 	shot_box.add_theme_constant_override("separation", 6)
@@ -1691,12 +1707,35 @@ func _build_ui() -> void:
 
 	var play_row := HBoxContainer.new()
 	shot_box.add_child(play_row)
-	play_button = _add_button(play_row, "Play (P)", "Play your frames as an animation at 12 frames per second.", _toggle_playback)
+	play_button = _add_button(play_row, "Play (P)", "Play your frames as an animation at the frame rate below.", _toggle_playback)
 	_add_button(play_row, "Delete Last Frame", "Remove the most recent frame.", _delete_last_frame)
 	frames_label = Label.new()
 	frames_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	frames_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	play_row.add_child(frames_label)
+
+	var rate_row := HBoxContainer.new()
+	shot_box.add_child(rate_row)
+	var rate_title := Label.new()
+	rate_title.text = "Frame rate:"
+	rate_title.tooltip_text = "How many frames play each second. 12 is standard for stop motion. Higher numbers need more frames for the same length of animation."
+	rate_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	rate_row.add_child(rate_title)
+	var fps_option := OptionButton.new()
+	fps_option.focus_mode = Control.FOCUS_NONE
+	fps_option.tooltip_text = rate_title.tooltip_text
+	for r in FRAME_RATES:
+		fps_option.add_item("%d fps" % r)
+	fps_option.select(FRAME_RATES.find(DEFAULT_FPS))
+	fps_option.item_selected.connect(func(index: int) -> void: playback_fps = FRAME_RATES[index])
+	rate_row.add_child(fps_option)
+	var rate_spacer := Control.new()
+	rate_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rate_row.add_child(rate_spacer)
+	var export_button := _make_button("Export...", "Download your animation as image files (and more formats soon).")
+	export_button.toggle_mode = true
+	export_button.toggled.connect(func(on: bool) -> void: export_panel.visible = on)
+	rate_row.add_child(export_button)
 
 	var onion_row := HBoxContainer.new()
 	shot_box.add_child(onion_row)
@@ -1737,6 +1776,192 @@ func _build_ui() -> void:
 	layer.add_child(cursor_label)
 
 	_update_frame_info()
+
+
+# ---------------------------------------------------------------- export
+
+func _build_export_panel(parent: Control) -> void:
+	export_panel = PanelContainer.new()
+	export_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	export_panel.size_flags_vertical = Control.SIZE_SHRINK_END
+	export_panel.visible = false
+	parent.add_child(export_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.custom_minimum_size = Vector2(300, 0)
+	export_panel.add_child(box)
+
+	var title := Label.new()
+	title.text = "EXPORT YOUR ANIMATION"
+	title.add_theme_font_size_override("font_size", 16)
+	box.add_child(title)
+
+	var name_title := Label.new()
+	name_title.text = "Name:"
+	box.add_child(name_title)
+	export_name = LineEdit.new()
+	export_name.text = "my-animation"
+	export_name.tooltip_text = "Used for the downloaded file and the frame names."
+	box.add_child(export_name)
+
+	var format_title := Label.new()
+	format_title.text = "Format:"
+	box.add_child(format_title)
+	var group := ButtonGroup.new()
+	for entry in [
+		["png", "Frames: PNG", "Full-quality images, one per frame, in a zip. Best for editing in Premiere.", true],
+		["jpg", "Frames: JPG (saves space)", "Smaller images, one per frame, in a zip. Slightly lower quality.", true],
+		["xml", "Premiere XML + frames (experimental)", "A Premiere Pro sequence with your frames already in order, plus the frames, in one zip. Open it with File > Import in Premiere.", true],
+		["mp4", "MP4 video (coming next)", "Coming in the next update.", false],
+		["gif", "Animated GIF (coming next)", "Coming in the next update.", false],
+	]:
+		var key: String = entry[0]
+		var b := _make_button(entry[1], entry[2])
+		b.toggle_mode = true
+		b.button_group = group
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.disabled = not entry[3]
+		b.button_pressed = key == export_format
+		b.pressed.connect(func() -> void: export_format = key)
+		box.add_child(b)
+
+	var download := _make_button("DOWNLOAD", "Package your frames and download them.")
+	download.add_theme_font_size_override("font_size", 16)
+	download.pressed.connect(_export)
+	box.add_child(download)
+
+	export_status = Label.new()
+	export_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	export_status.custom_minimum_size = Vector2(300, 0)
+	box.add_child(export_status)
+
+
+## Turns whatever the student typed into a safe file name.
+func _safe_name(raw: String) -> String:
+	var cleaned := raw.strip_edges().replace(" ", "-").validate_filename()
+	return cleaned if cleaned != "" else "my-animation"
+
+
+func _frame_file(index: int, ext: String) -> String:
+	return "shot01_%04d.%s" % [index + 1, ext]
+
+
+func _export() -> void:
+	if exporting:
+		return
+	if frame_textures.is_empty():
+		export_status.text = "Capture some frames first, then export."
+		return
+	exporting = true
+	if playing:
+		_stop_playback()
+
+	var base := _safe_name(export_name.text)
+	var use_jpg := export_format == "jpg"
+	var ext := "jpg" if use_jpg else "png"
+	var frame_dir := base + "/frames/" if export_format == "xml" else base + "/"
+	var zip_path := "user://%s.zip" % base
+	var zip := ZIPPacker.new()
+	if zip.open(zip_path) != OK:
+		export_status.text = "Couldn't start the export. Try again."
+		exporting = false
+		return
+
+	var count := frame_textures.size()
+	for i in count:
+		var img := frame_textures[i].get_image()
+		var bytes: PackedByteArray = img.save_jpg_to_buffer(0.9) if use_jpg else img.save_png_to_buffer()
+		zip.start_file(frame_dir + _frame_file(i, ext))
+		zip.write_file(bytes)
+		zip.close_file()
+		export_status.text = "Packing frame %d of %d..." % [i + 1, count]
+		# Let the screen update so the app doesn't look frozen during big exports.
+		await get_tree().process_frame
+
+	if export_format == "xml":
+		zip.start_file("%s/%s.xml" % [base, base])
+		zip.write_file(_build_premiere_xml(base, count, ext).to_utf8_buffer())
+		zip.close_file()
+		zip.start_file("%s/How to open in Premiere.txt" % base)
+		zip.write_file(_premiere_readme(base).to_utf8_buffer())
+		zip.close_file()
+	zip.close()
+
+	var data := FileAccess.get_file_as_bytes(zip_path)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(zip_path))
+	_deliver_file(data, base + ".zip", "application/zip")
+	exporting = false
+
+
+## In a browser, downloads the file. When run from the Godot editor, saves it to Downloads instead.
+func _deliver_file(data: PackedByteArray, file_name: String, mime: String) -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.download_buffer(data, file_name, mime)
+		export_status.text = "Downloaded %s. Check your Downloads folder." % file_name
+		return
+	var path := OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS).path_join(file_name)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		export_status.text = "Couldn't save the file to Downloads."
+		return
+	f.store_buffer(data)
+	f.close()
+	OS.shell_show_in_file_manager(path)
+	export_status.text = "Saved to %s" % path
+
+
+## A Final Cut Pro 7 XML project, which Premiere Pro can import (File > Import).
+## It holds two things: a "Frames" bin with every frame, and the sequence, with each frame
+## as a one-frame clip in order at the chosen frame rate. Keeping the frames in their own bin
+## means the sequence is easy to find instead of being buried among the frames.
+func _build_premiere_xml(base: String, count: int, ext: String) -> String:
+	var rate := "<rate><timebase>%d</timebase><ntsc>FALSE</ntsc></rate>" % playback_fps
+	var w := shot_viewport.size.x
+	var h := shot_viewport.size.y
+	var size := "<samplecharacteristics>%s<width>%d</width><height>%d</height><pixelaspectratio>square</pixelaspectratio></samplecharacteristics>" % [rate, w, h]
+	var lines := PackedStringArray()
+	lines.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+	lines.append("<!DOCTYPE xmeml>")
+	lines.append("<xmeml version=\"4\">")
+	lines.append("<project><name>%s</name><children>" % base.xml_escape())
+
+	# The Frames bin: one master clip per frame. Each file is described in full here, once.
+	lines.append("<bin><name>Frames</name><children>")
+	for i in count:
+		var file_name := _frame_file(i, ext)
+		lines.append("<clip id=\"masterclip-%d\"><masterclipid>masterclip-%d</masterclipid><ismasterclip>TRUE</ismasterclip><name>%s</name><duration>1</duration>%s" % [i + 1, i + 1, file_name, rate])
+		lines.append("<media><video><track><clipitem id=\"masterclipitem-%d\"><masterclipid>masterclip-%d</masterclipid><name>%s</name>" % [i + 1, i + 1, file_name])
+		lines.append("<file id=\"file-%d\"><name>%s</name><pathurl>frames/%s</pathurl>%s<duration>1</duration><media><video>%s</video></media></file>" % [i + 1, file_name, file_name, rate, size])
+		lines.append("</clipitem></track></video></media></clip>")
+	lines.append("</children></bin>")
+
+	# The sequence: every frame in order, each one frame long, pointing back to its master clip.
+	lines.append("<sequence id=\"sequence-1\">")
+	lines.append("<name>%s</name>" % base.xml_escape())
+	lines.append("<duration>%d</duration>" % count)
+	lines.append(rate)
+	lines.append("<timecode>%s<string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>" % rate)
+	lines.append("<media><video><format>%s</format><track>" % size)
+	for i in count:
+		var file_name := _frame_file(i, ext)
+		lines.append("<clipitem id=\"clipitem-%d\"><masterclipid>masterclip-%d</masterclipid><name>%s</name><enabled>TRUE</enabled><duration>1</duration>%s<start>%d</start><end>%d</end><in>0</in><out>1</out><file id=\"file-%d\"/></clipitem>" % [i + 1, i + 1, file_name, rate, i, i + 1, i + 1])
+	lines.append("</track></video></media>")
+	lines.append("</sequence>")
+
+	lines.append("</children></project>")
+	lines.append("</xmeml>")
+	return "\n".join(lines)
+
+
+func _premiere_readme(base: String) -> String:
+	return "HOW TO OPEN THIS IN PREMIERE PRO\n\n" \
+		+ "1. Unzip this folder and keep it somewhere it won't get deleted (not just in Downloads).\n" \
+		+ "2. In Premiere Pro, choose File > Import and pick %s.xml.\n" % base \
+		+ "   Premiere makes a new bin. Open it and double-click the sequence named %s\n" % base \
+		+ "   to see your animation on the timeline. Your frames are in the Frames bin.\n" \
+		+ "3. If Premiere says your media is offline or asks you to link media, click Locate,\n" \
+		+ "   open the frames folder, and pick the first frame. Premiere should find the rest.\n" \
+		+ "4. The sequence is %d frames per second, %d x %d pixels.\n" % [playback_fps, shot_viewport.size.x, shot_viewport.size.y]
 
 
 func _add_group_label(parent: Control, text: String) -> void:
