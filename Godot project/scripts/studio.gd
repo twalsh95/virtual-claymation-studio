@@ -1,4 +1,7 @@
 extends Node3D
+
+## Fired when the browser's export code answers (see vcs-export.js).
+signal js_replied
 ## Virtual Claymation Studio.
 ## Builds the set, lights, clay puppet, cameras, and UI in code,
 ## then handles posing, camera moves, onion skinning, undo, and capturing frames.
@@ -136,6 +139,9 @@ var export_name: LineEdit
 var export_status: Label
 var export_format := "png"
 var exporting := false
+var js_ready := false
+var js_callback: JavaScriptObject   # Kept alive so the browser can keep calling back into Godot.
+var js_reply := ""
 var camera_controls: Array[Button] = []   # Disabled while the camera is locked.
 
 
@@ -1812,8 +1818,8 @@ func _build_export_panel(parent: Control) -> void:
 		["png", "Frames: PNG", "Full-quality images, one per frame, in a zip. Best for editing in Premiere.", true],
 		["jpg", "Frames: JPG (saves space)", "Smaller images, one per frame, in a zip. Slightly lower quality.", true],
 		["xml", "Premiere XML + frames (experimental)", "A Premiere Pro sequence with your frames already in order, plus the frames, in one zip. Open it with File > Import in Premiere.", true],
-		["mp4", "MP4 video (coming next)", "Coming in the next update.", false],
-		["gif", "Animated GIF (coming next)", "Coming in the next update.", false],
+		["mp4", "MP4 video", "A video file at 1280 x 720 that plays anywhere and imports straight into Premiere. Works in the browser version.", true],
+		["gif", "Animated GIF", "A small looping animation (480 x 270) for sharing. Limited colors, so not for editing. Works in the browser version.", true],
 	]:
 		var key: String = entry[0]
 		var b := _make_button(entry[1], entry[2])
@@ -1857,6 +1863,10 @@ func _export() -> void:
 		_stop_playback()
 
 	var base := _safe_name(export_name.text)
+	if export_format == "mp4" or export_format == "gif":
+		await _export_video(export_format, base)
+		exporting = false
+		return
 	var use_jpg := export_format == "jpg"
 	var ext := "jpg" if use_jpg else "png"
 	var frame_dir := base + "/frames/" if export_format == "xml" else base + "/"
@@ -1891,6 +1901,66 @@ func _export() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(zip_path))
 	_deliver_file(data, base + ".zip", "application/zip")
 	exporting = false
+
+
+## MP4 and GIF are made by the browser (vcs-export.js), so they only work in the browser version.
+## Frames go across one at a time so even long animations don't use too much memory.
+func _export_video(kind: String, base: String) -> void:
+	if not OS.has_feature("web"):
+		export_status.text = "MP4 and GIF work in the browser version. Use Run in Browser to try them."
+		return
+	if not _load_export_tools():
+		export_status.text = "Couldn't load the video tools. Try reloading the page."
+		return
+	# Left untyped on purpose: start/addFrame/finish live in the browser, not in Godot.
+	var api = JavaScriptBridge.get_interface("vcsExport")
+	var w := 1280 if kind == "mp4" else 480
+	var h := 720 if kind == "mp4" else 270
+	var count := frame_textures.size()
+
+	export_status.text = "Getting ready..."
+	api.start(kind, w, h, playback_fps, base, js_callback)
+	await js_replied
+	if js_reply.begins_with("error"):
+		export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
+		return
+
+	for i in count:
+		var img := frame_textures[i].get_image()
+		if img.get_width() != w or img.get_height() != h:
+			img.resize(w, h, Image.INTERPOLATE_BILINEAR)
+		api.addFrame(Marshalls.raw_to_base64(img.save_jpg_to_buffer(0.92)), js_callback)
+		await js_replied
+		if js_reply.begins_with("error"):
+			export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
+			return
+		export_status.text = "Making your %s: frame %d of %d..." % [kind.to_upper(), i + 1, count]
+
+	export_status.text = "Finishing up..."
+	api.finish(js_callback)
+	await js_replied
+	if js_reply.begins_with("done: "):
+		export_status.text = "Downloaded %s. Check your Downloads folder." % js_reply.trim_prefix("done: ")
+	else:
+		export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
+
+
+## Loads the bundled MP4/GIF code (res://web/vcs-export.js) into the page the first time it's needed.
+func _load_export_tools() -> bool:
+	if js_ready:
+		return true
+	var code := FileAccess.get_file_as_string("res://web/vcs-export.js")
+	if code == "":
+		return false
+	JavaScriptBridge.eval(code, true)
+	js_callback = JavaScriptBridge.create_callback(_on_js_reply)
+	js_ready = JavaScriptBridge.get_interface("vcsExport") != null
+	return js_ready
+
+
+func _on_js_reply(args: Array) -> void:
+	js_reply = str(args[0]) if args.size() > 0 else ""
+	js_replied.emit()
 
 
 ## In a browser, downloads the file. When run from the Godot editor, saves it to Downloads instead.
