@@ -15,6 +15,11 @@ const CAM_ZOOM_SPEED := 0.08
 # Rates Premiere Pro offers for sequences, so every export imports cleanly.
 const FRAME_RATES := [10, 12, 15, 24, 30, 60]
 const DEFAULT_FPS := 12
+const APP_NAME := "Virtual Claymation Studio"
+const PROJECT_VERSION := 1
+const PROJECT_EXT := "clay"
+const AUTOSAVE_PATH := "user://autosave.claymation"
+const AUTOSAVE_SECONDS := 5.0
 const HIGHLIGHT_COLOR := Color(1.0, 0.75, 0.3)
 const ACCENT := Color(0.95, 0.6, 0.2)
 const DEFAULT_YAW := 0.35
@@ -142,6 +147,23 @@ var exporting := false
 var js_ready := false
 var js_callback: JavaScriptObject   # Kept alive so the browser can keep calling back into Godot.
 var js_reply := ""
+var js_open_callback: JavaScriptObject
+
+# Projects and autosave.
+var factory_rest: Dictionary = {}     # The puppet's original default pose, for New Project.
+var factory_camera := Transform3D.IDENTITY
+var factory_fov := 40.0
+var autosave_enabled := false        # Off until the student decides about any earlier autosave.
+var autosave_timer := 0.0
+var last_saved_text := ""
+var loading := false
+var ui_theme: Theme
+var fps_option: OptionButton
+var busy_overlay: Control
+var busy_label: Label
+var confirm_dialog: ConfirmationDialog
+var pending_confirm: Callable
+var open_dialog: FileDialog
 var camera_controls: Array[Button] = []   # Disabled while the camera is locked.
 
 
@@ -167,6 +189,10 @@ func _ready() -> void:
 	# No status message at startup.
 	status_panel.visible = false
 	status_timer = 0.0
+	factory_rest = rest_pose.duplicate()
+	factory_camera = camera_default
+	factory_fov = camera_default_fov
+	_check_autosave()
 
 
 # ---------------------------------------------------------------- world
@@ -1349,6 +1375,12 @@ func _flash_status(text: String, seconds: float = 3.0) -> void:
 
 
 func _process(delta: float) -> void:
+	if autosave_enabled and not loading and not capturing and not exporting:
+		autosave_timer += delta
+		if autosave_timer >= AUTOSAVE_SECONDS:
+			autosave_timer = 0.0
+			_autosave()
+
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
 
 	if status_timer > 0.0:
@@ -1472,7 +1504,8 @@ func _build_ui() -> void:
 	layer.add_child(camera_screen)
 
 	var margin := MarginContainer.new()
-	margin.theme = _make_theme()
+	ui_theme = _make_theme()
+	margin.theme = ui_theme
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
@@ -1556,6 +1589,12 @@ func _build_ui() -> void:
 	_add_button(flow, "Undo (Ctrl+Z)", "Undo the last posing or camera change.", _undo)
 	_add_button(flow, "Reset Pose", "Put the puppet back in its default pose.", _reset_pose)
 	_add_button(flow, "Set as Default Pose", "Make the current pose the one Reset Pose returns to.", _set_default_pose)
+
+	_add_divider(flow)
+	_add_group_label(flow, "PROJECT")
+	_add_button(flow, "New Project", "Start a new animation from scratch.", func() -> void: _confirm("Start a new project? Your current animation will be replaced. Save it first if you want to keep it.", _new_project))
+	_add_button(flow, "Save Project", "Download your project as a small file you can open again later, on any computer.", _save_project)
+	_add_button(flow, "Open Project", "Open a project file you saved earlier.", func() -> void: _confirm("Open a project? Your current animation will be replaced. Save it first if you want to keep it.", _open_project))
 
 	_add_divider(flow)
 	var help_button := _make_button("Help", "Show or hide the list of controls.")
@@ -1649,7 +1688,8 @@ func _build_ui() -> void:
 		+ "Camera View (C): pose while looking through the shot camera.\n" \
 		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
 		+ "Onion skin (O): see faint ghosts of your last 1 or 3 frames.\n" \
-		+ "Space: capture a frame. P: play your animation. Ctrl+Z: undo."
+		+ "Space: capture a frame. P: play your animation. Ctrl+Z: undo.\n" \
+		+ "Your work autosaves in this browser on this computer. Save Project makes a file you can open anywhere."
 	help_panel.add_child(help_text)
 
 	var spacer := Control.new()
@@ -1727,7 +1767,7 @@ func _build_ui() -> void:
 	rate_title.tooltip_text = "How many frames play each second. 12 is standard for stop motion. Higher numbers need more frames for the same length of animation."
 	rate_title.mouse_filter = Control.MOUSE_FILTER_STOP
 	rate_row.add_child(rate_title)
-	var fps_option := OptionButton.new()
+	fps_option = OptionButton.new()
 	fps_option.focus_mode = Control.FOCUS_NONE
 	fps_option.tooltip_text = rate_title.tooltip_text
 	for r in FRAME_RATES:
@@ -1781,7 +1821,265 @@ func _build_ui() -> void:
 	cursor_label.visible = false
 	layer.add_child(cursor_label)
 
+	# ---- Blocks clicks and shows progress while a project loads.
+	busy_overlay = ColorRect.new()
+	(busy_overlay as ColorRect).color = Color(0, 0, 0, 0.55)
+	busy_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	busy_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	busy_overlay.theme = ui_theme
+	busy_overlay.visible = false
+	layer.add_child(busy_overlay)
+	var busy_center := CenterContainer.new()
+	busy_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	busy_overlay.add_child(busy_center)
+	var busy_panel := PanelContainer.new()
+	busy_center.add_child(busy_panel)
+	busy_label = Label.new()
+	busy_label.add_theme_font_size_override("font_size", 18)
+	busy_panel.add_child(busy_label)
+
+	confirm_dialog = ConfirmationDialog.new()
+	confirm_dialog.theme = ui_theme
+	confirm_dialog.title = "Are you sure?"
+	confirm_dialog.ok_button_text = "Yes, continue"
+	confirm_dialog.cancel_button_text = "Cancel"
+	confirm_dialog.confirmed.connect(_on_confirmed)
+	add_child(confirm_dialog)
+
 	_update_frame_info()
+
+
+# ---------------------------------------------------------------- projects and autosave
+
+## Everything needed to rebuild the animation. Frames are saved as poses, not pictures,
+## so project files stay tiny; the pictures are re-rendered when a project opens.
+func _project_data() -> Dictionary:
+	var rest_joints: Array = []
+	for part in parts:
+		var joint: Node3D = part["joint"]
+		rest_joints.append(rest_pose[joint])
+	return {
+		"app": APP_NAME,
+		"version": PROJECT_VERSION,
+		"name": export_name.text,
+		"fps": playback_fps,
+		"onion": onion_layers,
+		"rest": {"root": rest_pose[puppet_root], "joints": rest_joints},
+		"camera_default": {"transform": camera_default, "fov": camera_default_fov},
+		"current": _get_pose(),
+		"frames": frame_poses,
+	}
+
+
+func _project_text() -> String:
+	return JSON.stringify(JSON.from_native(_project_data()), "", true, true)
+
+
+## Reads project text. Returns the project, or {} with an "error" key explaining what's wrong.
+func _parse_project(text: String) -> Dictionary:
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {"error": "That file isn't a claymation project."}
+	var data: Variant = JSON.to_native(parsed, false)
+	if typeof(data) != TYPE_DICTIONARY:
+		return {"error": "That file isn't a claymation project."}
+	var project: Dictionary = data
+	if project.get("app", "") != APP_NAME:
+		return {"error": "That file isn't a claymation project."}
+	var rest: Dictionary = project.get("rest", {})
+	var joints: Array = rest.get("joints", [])
+	if joints.size() != parts.size():
+		return {"error": "That project was made with a different puppet, so it can't be opened here."}
+	return project
+
+
+func _load_project_text(text: String) -> void:
+	var project := _parse_project(text)
+	if project.has("error"):
+		_flash_status(project["error"], 6.0)
+		return
+	await _apply_project(project)
+	_flash_status("Opened %s." % export_name.text)
+
+
+func _apply_project(project: Dictionary) -> void:
+	loading = true
+	if playing:
+		_stop_playback()
+	var rest: Dictionary = project["rest"]
+	rest_pose[puppet_root] = rest["root"]
+	var joints: Array = rest["joints"]
+	for i in parts.size():
+		var joint: Node3D = parts[i]["joint"]
+		rest_pose[joint] = joints[i]
+	var cam: Dictionary = project.get("camera_default", {})
+	camera_default = cam.get("transform", factory_camera)
+	camera_default_fov = cam.get("fov", factory_fov)
+	export_name.text = str(project.get("name", "my-animation"))
+	_set_fps(int(project.get("fps", DEFAULT_FPS)))
+	_set_onion_layers(int(project.get("onion", 1)))
+	frame_poses.assign(project.get("frames", []))
+	undo_stack.clear()
+	await _rebuild_frames()
+	var current: Dictionary = project.get("current", {})
+	if current.is_empty() and not frame_poses.is_empty():
+		current = frame_poses[frame_poses.size() - 1]
+	if not current.is_empty():
+		_apply_pose(current)
+	_update_ghosts()
+	loading = false
+	last_saved_text = ""
+
+
+## Re-renders every frame from its saved pose through the shot camera.
+func _rebuild_frames() -> void:
+	frame_textures.clear()
+	if frame_poses.is_empty():
+		_update_frame_info()
+		return
+	busy_overlay.visible = true
+	capturing = true
+	_set_highlight({})
+	for ghost in ghosts:
+		ghost.visible = false
+	shot_camera.cull_mask = SHOT_CAPTURE_MASK
+	var count := frame_poses.size()
+	for i in count:
+		busy_label.text = "Rebuilding your frames: %d of %d" % [i + 1, count]
+		_apply_pose(frame_poses[i])
+		await RenderingServer.frame_post_draw
+		frame_textures.append(ImageTexture.create_from_image(shot_viewport.get_texture().get_image()))
+	shot_camera.cull_mask = SHOT_PREVIEW_MASK
+	capturing = false
+	busy_overlay.visible = false
+	_update_frame_info()
+
+
+func _new_project() -> void:
+	if playing:
+		_stop_playback()
+	rest_pose = factory_rest.duplicate()
+	for part in parts:
+		part["twist"] = 0.0
+	for node in rest_pose.keys():
+		var n: Node3D = node
+		n.transform = rest_pose[node]
+	camera_default = factory_camera
+	camera_default_fov = factory_fov
+	shot_camera.global_transform = factory_camera
+	shot_camera.fov = factory_fov
+	_sync_camera()
+	frame_poses.clear()
+	frame_textures.clear()
+	undo_stack.clear()
+	export_name.text = "my-animation"
+	_set_fps(DEFAULT_FPS)
+	_set_onion_layers(1)
+	_update_frame_info()
+	_update_ghosts()
+	_flash_status("Started a new project.")
+
+
+func _save_project() -> void:
+	var file_name := "%s.%s" % [_safe_name(export_name.text), PROJECT_EXT]
+	_flash_status(_deliver_file(_project_text().to_utf8_buffer(), file_name, "application/json"), 5.0)
+
+
+func _open_project() -> void:
+	if OS.has_feature("web"):
+		if not _load_export_tools():
+			_flash_status("Couldn't open the file picker. Try reloading the page.")
+			return
+		var api = JavaScriptBridge.get_interface("vcsExport")
+		api.openFile(js_open_callback)
+		return
+	# Running from the Godot editor: use Godot's own file window.
+	if open_dialog == null:
+		open_dialog = FileDialog.new()
+		open_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+		open_dialog.access = FileDialog.ACCESS_FILESYSTEM
+		open_dialog.use_native_dialog = true
+		# Older .claymation files from early testing still open.
+		open_dialog.filters = PackedStringArray(["*.clay, *.claymation ; Claymation projects"])
+		open_dialog.file_selected.connect(func(path: String) -> void: _load_project_text(FileAccess.get_file_as_string(path)))
+		add_child(open_dialog)
+	open_dialog.popup_centered_ratio(0.6)
+
+
+## The browser's file picker sends back "file:<project text>", "cancel", or "error: <reason>".
+func _on_js_file_opened(args: Array) -> void:
+	var reply := str(args[0]) if args.size() > 0 else ""
+	if reply.begins_with("file:"):
+		_load_project_text(reply.substr(5))
+	elif reply.begins_with("error"):
+		_flash_status("Couldn't open that file: " + reply.trim_prefix("error: "), 6.0)
+
+
+func _autosave() -> void:
+	var text := _project_text()
+	if text == last_saved_text:
+		return
+	var f := FileAccess.open(AUTOSAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(text)
+	f.close()
+	last_saved_text = text
+
+
+## On startup: if there's autosaved work with frames in it, offer to bring it back.
+func _check_autosave() -> void:
+	if not FileAccess.file_exists(AUTOSAVE_PATH):
+		autosave_enabled = true
+		return
+	var text := FileAccess.get_file_as_string(AUTOSAVE_PATH)
+	var project := _parse_project(text)
+	var frames: Array = project.get("frames", [])
+	if project.has("error") or frames.is_empty():
+		autosave_enabled = true
+		return
+	confirm_dialog.title = "Welcome back"
+	confirm_dialog.dialog_text = "You have saved work here: \"%s\" with %d frames.\nPick up where you left off?" % [project.get("name", "my-animation"), frames.size()]
+	confirm_dialog.ok_button_text = "Pick up where I left off"
+	confirm_dialog.cancel_button_text = "Start fresh"
+	pending_confirm = func() -> void:
+		_restore_dialog_defaults()
+		await _apply_project(project)
+		autosave_enabled = true
+		_flash_status("Welcome back! Your work is restored.")
+	confirm_dialog.canceled.connect(_on_start_fresh, CONNECT_ONE_SHOT)
+	confirm_dialog.popup_centered()
+
+
+func _on_start_fresh() -> void:
+	_restore_dialog_defaults()
+	pending_confirm = Callable()
+	autosave_enabled = true
+
+
+func _restore_dialog_defaults() -> void:
+	confirm_dialog.title = "Are you sure?"
+	confirm_dialog.ok_button_text = "Yes, continue"
+	confirm_dialog.cancel_button_text = "Cancel"
+
+
+func _on_confirmed() -> void:
+	if pending_confirm.is_valid():
+		pending_confirm.call()
+
+
+func _confirm(message: String, action: Callable) -> void:
+	confirm_dialog.dialog_text = message
+	pending_confirm = action
+	confirm_dialog.popup_centered()
+
+
+func _set_fps(fps: int) -> void:
+	var index := FRAME_RATES.find(fps)
+	if index < 0:
+		index = FRAME_RATES.find(DEFAULT_FPS)
+	playback_fps = FRAME_RATES[index]
+	fps_option.select(index)
 
 
 # ---------------------------------------------------------------- export
@@ -1899,7 +2197,7 @@ func _export() -> void:
 
 	var data := FileAccess.get_file_as_bytes(zip_path)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(zip_path))
-	_deliver_file(data, base + ".zip", "application/zip")
+	export_status.text = _deliver_file(data, base + ".zip", "application/zip")
 	exporting = false
 
 
@@ -1945,7 +2243,8 @@ func _export_video(kind: String, base: String) -> void:
 		export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
 
 
-## Loads the bundled MP4/GIF code (res://web/vcs-export.js) into the page the first time it's needed.
+## Loads the bundled browser code (res://web/vcs-export.js: MP4/GIF export and the file picker)
+## into the page the first time it's needed.
 func _load_export_tools() -> bool:
 	if js_ready:
 		return true
@@ -1954,6 +2253,7 @@ func _load_export_tools() -> bool:
 		return false
 	JavaScriptBridge.eval(code, true)
 	js_callback = JavaScriptBridge.create_callback(_on_js_reply)
+	js_open_callback = JavaScriptBridge.create_callback(_on_js_file_opened)
 	js_ready = JavaScriptBridge.get_interface("vcsExport") != null
 	return js_ready
 
@@ -1964,20 +2264,19 @@ func _on_js_reply(args: Array) -> void:
 
 
 ## In a browser, downloads the file. When run from the Godot editor, saves it to Downloads instead.
-func _deliver_file(data: PackedByteArray, file_name: String, mime: String) -> void:
+## Returns a message for the student saying where the file went.
+func _deliver_file(data: PackedByteArray, file_name: String, mime: String) -> String:
 	if OS.has_feature("web"):
 		JavaScriptBridge.download_buffer(data, file_name, mime)
-		export_status.text = "Downloaded %s. Check your Downloads folder." % file_name
-		return
+		return "Downloaded %s. Check your Downloads folder." % file_name
 	var path := OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS).path_join(file_name)
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
-		export_status.text = "Couldn't save the file to Downloads."
-		return
+		return "Couldn't save the file to Downloads."
 	f.store_buffer(data)
 	f.close()
 	OS.shell_show_in_file_manager(path)
-	export_status.text = "Saved to %s" % path
+	return "Saved to %s" % path
 
 
 ## A Final Cut Pro 7 XML project, which Premiere Pro can import (File > Import).

@@ -292,5 +292,20 @@ window.vcsExport = (function () {
         return file;
       }).then((file) => reply(cb, 'done: ' + file), (e) => reply(cb, describe(e)));
     },
+
+    // Opens the browser's file picker for a saved project and sends back
+    // "file:<project text>", "cancel", or "error: <reason>".
+    openFile: function (cb) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.clay,.claymation,.json';
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (!file) { reply(cb, 'cancel'); return; }
+        file.text().then((text) => reply(cb, 'file:' + text), (e) => reply(cb, describe(e)));
+      });
+      input.addEventListener('cancel', () => reply(cb, 'cancel'));
+      input.click();
+    },
   };
 })();
