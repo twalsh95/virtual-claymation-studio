@@ -3,8 +3,8 @@ extends Node3D
 ## Fired when the browser's export code answers (see vcs-export.js).
 signal js_replied
 ## Virtual Claymation Studio.
-## Builds the set, lights, clay puppet, cameras, and UI in code,
-## then handles posing, camera moves, onion skinning, undo, and capturing frames.
+## Builds the set, lights, characters, props, cameras, and UI in code,
+## then handles posing, camera moves, onion skinning, undo, saving, and capturing frames.
 
 const ORBIT_SPEED := 0.006
 const TWIST_SPEED := 0.01
@@ -16,7 +16,7 @@ const CAM_ZOOM_SPEED := 0.08
 const FRAME_RATES := [10, 12, 15, 24, 30, 60]
 const DEFAULT_FPS := 12
 const APP_NAME := "Virtual Claymation Studio"
-const PROJECT_VERSION := 1
+const PROJECT_VERSION := 2
 const PROJECT_EXT := "clay"
 const AUTOSAVE_PATH := "user://autosave.claymation"
 const AUTOSAVE_SECONDS := 5.0
@@ -29,6 +29,20 @@ const WORK_FOV := 50.0
 const SHOT_ASPECT := 16.0 / 9.0
 const MAX_UNDO := 50
 const CAMERA_PICK_RADIUS := 0.22
+const LIFT_SPEED := 0.004
+const SQUASH_SPEED := 0.008
+
+# What students can add to the scene.
+const CHARACTER_TYPES := {"kid": "Kid", "man": "Man", "woman": "Woman", "dog": "Dog", "cat": "Cat"}
+const PROP_TYPES := {
+	"ball": "Ball", "box": "Box", "goal": "Goal", "marker": "Floor Marker", "table": "Table",
+	"chair": "Chair", "cone": "Cone", "can": "Can", "plank": "Plank", "rock": "Rock",
+}
+# Where new characters and props appear, first free spot wins.
+const SPAWN_SPOTS := [
+	Vector3(0, 0, 0), Vector3(1.0, 0, 0.4), Vector3(-1.0, 0, 0.4), Vector3(1.8, 0, -0.3),
+	Vector3(-1.8, 0, -0.3), Vector3(0.6, 0, 1.1), Vector3(-0.6, 0, 1.1), Vector3(0, 0, -1.2),
+]
 
 # Visual layers. Cameras choose which layers they can see.
 const LAYER_WORLD := 1          # Set, puppet, lights: seen by every camera.
@@ -38,16 +52,18 @@ const ALL_LAYERS := 1048575
 const SHOT_PREVIEW_MASK := LAYER_WORLD | LAYER_GHOSTS
 const SHOT_CAPTURE_MASK := LAYER_WORLD
 
-const POSE_TOOLS := ["bend", "twist", "move"]
+const POSE_TOOLS := ["bend", "twist", "move", "lift", "squash"]
 const CAMERA_TOOLS := ["pan", "truck", "dolly", "zoom"]
 const MODE_INFO := {
 	"bend": ["BEND", Color(0.3, 0.85, 0.35)],
 	"twist": ["TWIST", Color(1.0, 0.85, 0.2)],
-	"move": ["MOVE PUPPET", Color(0.7, 0.45, 1.0)],
+	"move": ["MOVE", Color(0.7, 0.45, 1.0)],
+	"lift": ["LIFT", Color(0.92, 0.92, 0.95)],
+	"squash": ["SQUASH", Color(1.0, 0.5, 0.8)],
 	"camera": ["CAMERA", Color(1.0, 0.25, 0.22)],
 }
 const TOOL_NAMES := {
-	"bend": "Bend", "twist": "Twist", "move": "Move",
+	"bend": "Bend", "twist": "Twist", "move": "Move", "lift": "Lift", "squash": "Squash",
 	"pan": "Pan / Tilt", "truck": "Truck / Pedestal", "dolly": "Dolly", "zoom": "Zoom",
 }
 
@@ -76,10 +92,17 @@ var camera_prop_mat: StandardMaterial3D
 var view_lines: MeshInstance3D
 var view_lines_mesh: ImmediateMesh
 
-# Puppet. Each part: {name, joint, materials, shapes, tip, axis, twist}.
-var puppet_root: Node3D
-var parts: Array[Dictionary] = []
-var rest_pose: Dictionary = {}
+# Scene objects: characters and props. Each one (a "figure") is a Dictionary:
+#   {id, type, kind ("character" or "prop"), name, root, body (props: the node that squashes),
+#    parts, center (props: the point it spins around, in body space), height, torso, head,
+#    head_center, squash, rest_squash}
+# Each part: {name, joint, materials, shapes, tip, axis, twist, figure, is_prop}.
+var scene_root: Node3D
+var figures: Array[Dictionary] = []
+var parts: Array[Dictionary] = []    # Every part of every figure, for picking.
+var rest_pose: Dictionary = {}       # Node3D -> its default transform (figure roots and joints).
+var next_number: Dictionary = {}     # type -> next number, for ids like "ball-2".
+var selected_figure: Dictionary = {}
 
 # Tools and dragging.
 var current_tool := "bend"
@@ -93,6 +116,7 @@ var grab_local := Vector3.ZERO
 var grab_screen_offset := Vector2.ZERO
 var move_offset := Vector3.ZERO
 var move_plane_y := 0.0
+var grab_figure: Dictionary = {}
 var undo_stack: Array[Dictionary] = []
 var undo_pending := false
 
@@ -104,8 +128,8 @@ var playing := false
 var play_index := 0
 var play_time := 0.0
 var onion_layers := 1
-var ghosts: Array[Node3D] = []
-var ghost_joints: Array = []    # One Array of joint nodes per ghost, in the same order as parts.
+var ghost_pool: Dictionary = {}       # "layer:id" -> {root, joints, body}: ghost copies of figures.
+var ghost_materials: Array[StandardMaterial3D] = []
 
 # Shared clay surface texture.
 var clay_normal: NoiseTexture2D
@@ -136,6 +160,9 @@ var lock_button: Button
 var tool_buttons: Dictionary = {}
 var view_buttons: Dictionary = {}
 var onion_buttons: Dictionary = {}
+var selected_label: Label
+var scene_list_panel: PanelContainer
+var scene_list_box: VBoxContainer
 
 # Frame rate and export.
 var playback_fps := DEFAULT_FPS
@@ -150,7 +177,6 @@ var js_reply := ""
 var js_open_callback: JavaScriptObject
 
 # Projects and autosave.
-var factory_rest: Dictionary = {}     # The puppet's original default pose, for New Project.
 var factory_camera := Transform3D.IDENTITY
 var factory_fov := 40.0
 var autosave_enabled := false        # Off until the student decides about any earlier autosave.
@@ -172,11 +198,13 @@ func _ready() -> void:
 	_build_environment()
 	_build_set()
 	_build_lights()
-	_build_puppet()
+	scene_root = Node3D.new()
+	scene_root.name = "Scene"
+	add_child(scene_root)
+	_build_ghost_materials()
 	_build_work_camera()
 	_build_shot_camera()
-	_save_rest_pose()
-	_build_ghosts()
+	selected_figure = _spawn("kid", "", Vector3.ZERO)
 	_build_ui()
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	toolbar.resized.connect(_on_viewport_resized)
@@ -189,8 +217,8 @@ func _ready() -> void:
 	# No status message at startup.
 	status_panel.visible = false
 	status_timer = 0.0
-	factory_rest = rest_pose.duplicate()
 	factory_camera = camera_default
+	_refresh_scene_list()
 	factory_fov = camera_default_fov
 	_check_autosave()
 
@@ -288,57 +316,258 @@ func _clay_material(color: Color) -> StandardMaterial3D:
 	return mat
 
 
-# ---------------------------------------------------------------- puppet
+# ---------------------------------------------------------------- scene objects: characters and props
 
-func _build_puppet() -> void:
-	puppet_root = Node3D.new()
-	puppet_root.name = "Puppet"
-	add_child(puppet_root)
+## Adds a character or prop to the scene and returns it.
+## `id` is passed when loading a saved project; `where` places it (otherwise the first free spot).
+func _spawn(type: String, id: String = "", where: Variant = null) -> Dictionary:
+	var number := 1
+	if id == "":
+		number = int(next_number.get(type, 1))
+		id = "%s-%d" % [type, number]
+	else:
+		number = maxi(1, int(id.get_slice("-", id.get_slice_count("-") - 1)))
+	next_number[type] = maxi(int(next_number.get(type, 1)), number + 1)
 
-	var shirt := Color(0.86, 0.42, 0.22)
-	var pants := Color(0.24, 0.38, 0.66)
-	var skin := Color(0.93, 0.76, 0.58)
+	var is_character := CHARACTER_TYPES.has(type)
+	var label: String = CHARACTER_TYPES[type] if is_character else PROP_TYPES[type]
+	if number > 1:
+		label += " %d" % number
+	var spot: Vector3 = where if where != null else _free_spot()
+
+	var root := Node3D.new()
+	root.name = id
+	scene_root.add_child(root)
+	root.position = spot
+	var figure := {
+		"id": id, "type": type, "kind": "character" if is_character else "prop", "name": label,
+		"root": root, "body": null, "parts": [], "center": Vector3.ZERO, "height": 1.0,
+		"torso": null, "head": null, "head_center": Vector3.ZERO, "squash": 1.0, "rest_squash": 1.0,
+	}
+	figures.append(figure)
+
+	match type:
+		"kid":
+			_build_humanoid(figure, 1.0, Color(0.86, 0.42, 0.22), Color(0.24, 0.38, 0.66), Color(0.93, 0.76, 0.58), "", Color.BLACK)
+		"man":
+			_build_humanoid(figure, 1.18, Color(0.25, 0.55, 0.35), Color(0.25, 0.25, 0.3), Color(0.8, 0.6, 0.45), "short", Color(0.25, 0.17, 0.1), 1.12)
+		"woman":
+			_build_humanoid(figure, 1.12, Color(0.55, 0.3, 0.65), Color(0.2, 0.3, 0.5), Color(0.62, 0.43, 0.3), "long", Color(0.12, 0.08, 0.06), 0.95)
+		"dog":
+			_build_quadruped(figure, 0.75, 0.5, Color(0.62, 0.43, 0.25), Color(0.88, 0.78, 0.62), Color(0.4, 0.27, 0.16), "floppy", false)
+		"cat":
+			_build_quadruped(figure, 0.55, 0.34, Color(0.92, 0.58, 0.28), Color(0.98, 0.9, 0.8), Color(0.75, 0.42, 0.18), "pointy", true)
+		_:
+			_build_prop(figure)
+
+	# Animals stand side-on to the camera so their shape reads clearly.
+	if type == "dog" or type == "cat":
+		root.rotation_degrees.y = 90.0
+
+	rest_pose[root] = root.transform
+	for part in figure["parts"]:
+		var joint: Node3D = part["joint"]
+		rest_pose[joint] = joint.transform
+	return figure
+
+
+func _free_spot() -> Vector3:
+	for spot_value in SPAWN_SPOTS:
+		var spot: Vector3 = spot_value
+		var taken := false
+		for figure in figures:
+			var root: Node3D = figure["root"]
+			if root.visible and Vector2(root.position.x - spot.x, root.position.z - spot.z).length() < 0.6:
+				taken = true
+				break
+		if not taken:
+			return spot
+	return Vector3(randf_range(-2.0, 2.0), 0, randf_range(-1.0, 1.5))
+
+
+func _find_figure(id: String) -> Dictionary:
+	for figure in figures:
+		if figure["id"] == id:
+			return figure
+	return {}
+
+
+## Returns the figure with this id, creating it if it doesn't exist yet (used when loading).
+func _ensure_figure(type: String, id: String) -> Dictionary:
+	var found := _find_figure(id)
+	if not found.is_empty():
+		return found
+	if not CHARACTER_TYPES.has(type) and not PROP_TYPES.has(type):
+		return {}
+	return _spawn(type, id)
+
+
+## People: Kid, Man, Woman. k scales the whole body; width scales shoulders and hips.
+func _build_humanoid(figure: Dictionary, k: float, shirt: Color, pants: Color, skin: Color, hair_style: String, hair: Color, width: float = 1.0) -> void:
 	var shoes := Color(0.2, 0.17, 0.15)
+	var root: Node3D = figure["root"]
+	var hips := _make_joint(root, "Hips", Vector3(0, 0.88 * k, 0), Vector3.ZERO)
+	var hips_part := _new_part(figure, "Hips (whole body)", hips)
+	hips_part["tip"] = Vector3(0, 0.5 * k, 0)
+	_add_sphere(hips_part, hips, Vector3.ZERO, 0.2 * k, Vector3(1.2 * width, 0.85, 0.95), pants)
 
-	# The puppet faces +Z, toward the shot camera, so its left side is +X.
-	var hips := _make_joint(puppet_root, "Hips", Vector3(0, 0.88, 0), Vector3.ZERO)
-	var hips_part := _new_part("Hips (whole body)", hips)
-	hips_part["tip"] = Vector3(0, 0.5, 0)
-	_add_sphere(hips_part, hips, Vector3.ZERO, 0.2, Vector3(1.2, 0.85, 0.95), pants)
+	var torso := _make_joint(hips, "Torso", Vector3(0, 0.06 * k, 0), Vector3.ZERO)
+	var torso_part := _new_part(figure, "Torso", torso)
+	_add_limb(torso_part, torso, Vector3.ZERO, Vector3(0, 0.42 * k, 0), 0.21 * k * width, shirt)
 
-	var torso := _make_joint(hips, "Torso", Vector3(0, 0.06, 0), Vector3.ZERO)
-	var torso_part := _new_part("Torso", torso)
-	_add_capsule(torso_part, torso, 0.42, 0.21, shirt, 1)
+	var head := _make_joint(torso, "Head", Vector3(0, 0.5 * k, 0), Vector3.ZERO)
+	var head_part := _new_part(figure, "Head", head)
+	head_part["tip"] = Vector3(0, 0.3 * k, 0.1 * k)
+	_add_sphere(head_part, head, Vector3(0, 0.2 * k, 0), 0.2 * k, Vector3.ONE, skin)
+	_add_sphere(head_part, head, Vector3(0, 0.19 * k, 0.2 * k), 0.045 * k, Vector3.ONE, skin)
+	_add_eye(head, Vector3(0.075 * k, 0.25 * k, 0.165 * k), 0.035 * k)
+	_add_eye(head, Vector3(-0.075 * k, 0.25 * k, 0.165 * k), 0.035 * k)
+	match hair_style:
+		"short":
+			_add_sphere(head_part, head, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.08, 0.75, 1.05), hair)
+		"long":
+			_add_sphere(head_part, head, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.1, 0.78, 1.08), hair)
+			_add_limb(head_part, head, Vector3(0, 0.25 * k, -0.11 * k), Vector3(0, 0.0, -0.13 * k), 0.15 * k, hair)
 
-	var head := _make_joint(torso, "Head", Vector3(0, 0.5, 0), Vector3.ZERO)
-	var head_part := _new_part("Head", head)
-	head_part["tip"] = Vector3(0, 0.3, 0.1)
-	_add_sphere(head_part, head, Vector3(0, 0.2, 0), 0.2, Vector3.ONE, skin)
-	_add_sphere(head_part, head, Vector3(0, 0.19, 0.2), 0.045, Vector3.ONE, skin)
-	_add_eye(head, Vector3(0.075, 0.25, 0.165))
-	_add_eye(head, Vector3(-0.075, 0.25, 0.165))
+	figure["torso"] = torso
+	figure["head"] = head
+	figure["head_center"] = Vector3(0, 0.2 * k, 0)
+	figure["height"] = 1.6 * k
 
 	for side_value in [1.0, -1.0]:
 		var s: float = side_value
 		var side_name: String = "Left" if s > 0.0 else "Right"
 
-		var shoulder := _make_joint(torso, side_name + "Shoulder", Vector3(0.27 * s, 0.4, 0), Vector3(0, 0, 12.0 * s))
-		var upper_arm := _new_part(side_name + " Upper Arm", shoulder)
-		_add_capsule(upper_arm, shoulder, 0.3, 0.085, shirt, -1)
+		var shoulder := _make_joint(torso, side_name + "Shoulder", Vector3(0.27 * k * width * s, 0.4 * k, 0), Vector3(0, 0, 12.0 * s))
+		var upper_arm := _new_part(figure, side_name + " Upper Arm", shoulder)
+		_add_limb(upper_arm, shoulder, Vector3.ZERO, Vector3(0, -0.3 * k, 0), 0.085 * k, shirt)
 
-		var elbow := _make_joint(shoulder, side_name + "Elbow", Vector3(0, -0.3, 0), Vector3.ZERO)
-		var forearm := _new_part(side_name + " Forearm", elbow)
-		_add_capsule(forearm, elbow, 0.26, 0.075, skin, -1)
-		_add_sphere(forearm, elbow, Vector3(0, -0.29, 0), 0.085, Vector3.ONE, skin)
+		var elbow := _make_joint(shoulder, side_name + "Elbow", Vector3(0, -0.3 * k, 0), Vector3.ZERO)
+		var forearm := _new_part(figure, side_name + " Forearm", elbow)
+		_add_limb(forearm, elbow, Vector3.ZERO, Vector3(0, -0.26 * k, 0), 0.075 * k, skin)
+		_add_sphere(forearm, elbow, Vector3(0, -0.29 * k, 0), 0.085 * k, Vector3.ONE, skin)
 
-		var hip := _make_joint(hips, side_name + "Hip", Vector3(0.12 * s, -0.04, 0), Vector3.ZERO)
-		var thigh := _new_part(side_name + " Thigh", hip)
-		_add_capsule(thigh, hip, 0.38, 0.1, pants, -1)
+		var hip := _make_joint(hips, side_name + "Hip", Vector3(0.12 * k * width * s, -0.04 * k, 0), Vector3.ZERO)
+		var thigh := _new_part(figure, side_name + " Thigh", hip)
+		_add_limb(thigh, hip, Vector3.ZERO, Vector3(0, -0.38 * k, 0), 0.1 * k, pants)
 
-		var knee := _make_joint(hip, side_name + "Knee", Vector3(0, -0.38, 0), Vector3.ZERO)
-		var shin := _new_part(side_name + " Shin and Foot", knee)
-		_add_capsule(shin, knee, 0.36, 0.09, pants, -1)
-		_add_sphere(shin, knee, Vector3(0, -0.4, 0.05), 0.1, Vector3(0.9, 0.55, 1.4), shoes)
+		var knee := _make_joint(hip, side_name + "Knee", Vector3(0, -0.38 * k, 0), Vector3.ZERO)
+		var shin := _new_part(figure, side_name + " Shin and Foot", knee)
+		_add_limb(shin, knee, Vector3.ZERO, Vector3(0, -0.36 * k, 0), 0.09 * k, pants)
+		_add_sphere(shin, knee, Vector3(0, -0.4 * k, 0.05 * k), 0.1 * k, Vector3(0.9, 0.55, 1.4), shoes)
+
+
+## Four-legged animals: Dog, Cat. The body runs front-to-back; each leg has two parts.
+func _build_quadruped(figure: Dictionary, length: float, height: float, fur: Color, muzzle: Color, ears: Color, ear_style: String, tall_tail: bool) -> void:
+	var root: Node3D = figure["root"]
+	var r := height * 0.42
+	var leg := height * 0.4
+
+	var body := _make_joint(root, "Body", Vector3(0, height, 0), Vector3.ZERO)
+	var body_part := _new_part(figure, "Body (whole body)", body)
+	_add_limb(body_part, body, Vector3(0, 0, -length * 0.5), Vector3(0, 0, length * 0.5), r, fur)
+
+	var hr := r * 0.95
+	var head := _make_joint(body, "Head", Vector3(0, r * 0.6, length * 0.5), Vector3.ZERO)
+	var head_part := _new_part(figure, "Head", head)
+	head_part["tip"] = Vector3(0, hr * 0.7, hr * 1.5)
+	_add_sphere(head_part, head, Vector3(0, hr * 0.7, hr * 0.5), hr, Vector3.ONE, fur)
+	_add_sphere(head_part, head, Vector3(0, hr * 0.45, hr * 1.3), hr * 0.5, Vector3(1.0, 0.8, 1.1), muzzle)
+	_add_eye(head, Vector3(0, hr * 0.62, hr * 1.82), hr * 0.13)
+	_add_eye(head, Vector3(hr * 0.38, hr * 0.95, hr * 1.2), hr * 0.12)
+	_add_eye(head, Vector3(-hr * 0.38, hr * 0.95, hr * 1.2), hr * 0.12)
+	for side_value in [1.0, -1.0]:
+		var s: float = side_value
+		if ear_style == "floppy":
+			_add_sphere(head_part, head, Vector3(hr * 0.85 * s, hr * 0.85, hr * 0.35), hr * 0.42, Vector3(0.45, 1.25, 0.8), ears)
+		else:
+			_add_cone(head_part, head, Vector3(hr * 0.55 * s, hr * 1.55, hr * 0.4), hr * 0.32, hr * 0.6, ears)
+	figure["torso"] = body
+	figure["head"] = head
+	figure["head_center"] = Vector3(0, hr * 0.7, hr * 0.5)
+	figure["height"] = height + hr * 1.6
+
+	for front_value in [1.0, -1.0]:
+		var f: float = front_value
+		var end_name: String = "Front" if f > 0.0 else "Back"
+		for side_value in [1.0, -1.0]:
+			var s: float = side_value
+			var leg_name: String = "%s %s" % [end_name, "Left" if s > 0.0 else "Right"]
+			var hip := _make_joint(body, leg_name.replace(" ", "") + "Hip", Vector3(r * 0.55 * s, -r * 0.3, length * 0.38 * f), Vector3.ZERO)
+			var upper := _new_part(figure, leg_name + " Leg", hip)
+			_add_limb(upper, hip, Vector3.ZERO, Vector3(0, -leg, 0), r * 0.32, fur)
+			var knee := _make_joint(hip, leg_name.replace(" ", "") + "Knee", Vector3(0, -leg, 0), Vector3.ZERO)
+			var lower := _new_part(figure, leg_name + " Paw", knee)
+			_add_limb(lower, knee, Vector3.ZERO, Vector3(0, -leg, 0), r * 0.27, fur)
+			_add_sphere(lower, knee, Vector3(0, -leg, r * 0.1), r * 0.3, Vector3(1.0, 0.6, 1.3), fur)
+
+	var tail := _make_joint(body, "Tail", Vector3(0, r * 0.4, -length * 0.5), Vector3.ZERO)
+	var tail_part := _new_part(figure, "Tail", tail)
+	var tail_end := Vector3(0, height * 0.9, -height * 0.3) if tall_tail else Vector3(0, height * 0.35, -height * 0.45)
+	_add_limb(tail_part, tail, Vector3.ZERO, tail_end, r * (0.14 if tall_tail else 0.18), fur)
+
+
+## Props are one solid piece. Their meshes sit inside a "Body" node that squashes and stretches.
+func _build_prop(figure: Dictionary) -> void:
+	var root: Node3D = figure["root"]
+	var body := Node3D.new()
+	body.name = "Body"
+	root.add_child(body)
+	figure["body"] = body
+	var part := _new_part(figure, figure["name"], root)
+	part["is_prop"] = true
+	var wood := Color(0.62, 0.42, 0.25)
+	match figure["type"]:
+		"ball":
+			_add_sphere(part, body, Vector3(0, 0.15, 0), 0.15, Vector3.ONE, Color(0.9, 0.22, 0.2))
+			figure["center"] = Vector3(0, 0.15, 0)
+		"box":
+			_add_box(part, body, Vector3(0, 0.2, 0), Vector3(0.4, 0.4, 0.4), Color(0.85, 0.65, 0.35))
+			figure["center"] = Vector3(0, 0.2, 0)
+		"goal":
+			var white := Color(0.95, 0.95, 0.95)
+			_add_box(part, body, Vector3(0.6, 0.4, 0), Vector3(0.06, 0.8, 0.06), white)
+			_add_box(part, body, Vector3(-0.6, 0.4, 0), Vector3(0.06, 0.8, 0.06), white)
+			_add_box(part, body, Vector3(0, 0.8, 0), Vector3(1.26, 0.06, 0.06), white)
+			_add_box(part, body, Vector3(0, 0.03, -0.4), Vector3(1.26, 0.06, 0.06), white)
+			_add_box(part, body, Vector3(0.6, 0.03, -0.2), Vector3(0.06, 0.06, 0.4), white)
+			_add_box(part, body, Vector3(-0.6, 0.03, -0.2), Vector3(0.06, 0.06, 0.4), white)
+			_add_net(body, Vector3(0, 0.42, -0.2), Vector3(1.2, 0.8, 0.4))
+			figure["center"] = Vector3(0, 0.4, -0.2)
+		"marker":
+			var yellow := Color(1.0, 0.85, 0.1)
+			_add_box(part, body, Vector3(0, 0.011, 0), Vector3(0.5, 0.02, 0.08), yellow, Vector3(0, 45, 0))
+			_add_box(part, body, Vector3(0, 0.011, 0), Vector3(0.5, 0.02, 0.08), yellow, Vector3(0, -45, 0))
+			figure["center"] = Vector3(0, 0.01, 0)
+		"table":
+			_add_box(part, body, Vector3(0, 0.71, 0), Vector3(1.2, 0.08, 0.8), wood)
+			for x in [-0.52, 0.52]:
+				for z in [-0.32, 0.32]:
+					_add_box(part, body, Vector3(x, 0.335, z), Vector3(0.08, 0.67, 0.08), wood)
+			figure["center"] = Vector3(0, 0.4, 0)
+		"chair":
+			_add_box(part, body, Vector3(0, 0.45, 0), Vector3(0.45, 0.06, 0.45), wood)
+			for x in [-0.19, 0.19]:
+				for z in [-0.19, 0.19]:
+					_add_box(part, body, Vector3(x, 0.21, z), Vector3(0.05, 0.42, 0.05), wood)
+			_add_box(part, body, Vector3(0, 0.73, -0.2), Vector3(0.45, 0.5, 0.05), wood)
+			figure["center"] = Vector3(0, 0.45, 0)
+		"cone":
+			var orange := Color(1.0, 0.45, 0.1)
+			_add_cone(part, body, Vector3(0, 0.24, 0), 0.16, 0.44, orange)
+			_add_box(part, body, Vector3(0, 0.015, 0), Vector3(0.36, 0.03, 0.36), orange)
+			figure["center"] = Vector3(0, 0.2, 0)
+		"can":
+			_add_cylinder(part, body, Vector3(0, 0.15, 0), 0.12, 0.3, Color(0.5, 0.6, 0.72))
+			figure["center"] = Vector3(0, 0.15, 0)
+		"plank":
+			_add_box(part, body, Vector3(0, 0.025, 0), Vector3(1.2, 0.05, 0.3), Color(0.72, 0.52, 0.32))
+			figure["center"] = Vector3(0, 0.025, 0)
+		"rock":
+			_add_sphere(part, body, Vector3(0, 0.13, 0), 0.18, Vector3(1.2, 0.75, 1.0), Color(0.5, 0.5, 0.48))
+			figure["center"] = Vector3(0, 0.13, 0)
+	var center: Vector3 = figure["center"]
+	figure["height"] = maxf(center.y * 2.0, 0.3)
 
 
 func _make_joint(parent: Node3D, joint_name: String, pos: Vector3, rot_deg: Vector3) -> Node3D:
@@ -350,22 +579,30 @@ func _make_joint(parent: Node3D, joint_name: String, pos: Vector3, rot_deg: Vect
 	return joint
 
 
-func _new_part(part_name: String, joint: Node3D) -> Dictionary:
+func _new_part(figure: Dictionary, part_name: String, joint: Node3D) -> Dictionary:
 	# axis = the direction the part extends from its joint (joint space); twist = turn around that axis, in radians.
 	var part := {"name": part_name, "joint": joint, "materials": [], "shapes": [], "tip": Vector3.ZERO,
-		"axis": Vector3.UP, "twist": 0.0}
+		"axis": Vector3.UP, "twist": 0.0, "figure": figure, "is_prop": false}
+	figure["parts"].append(part)
 	parts.append(part)
 	return part
 
 
-## direction: -1 hangs down from the joint, +1 rises up from it.
-func _add_capsule(part: Dictionary, parent: Node3D, length: float, radius: float, color: Color, direction: int) -> void:
+## A clay capsule from one point to another (in the parent's space). The first limb added to a part
+## also sets which way that part points.
+func _add_limb(part: Dictionary, parent: Node3D, from: Vector3, to: Vector3, radius: float, color: Color) -> void:
+	var dir := to - from
+	var length := dir.length()
+	var up := dir.normalized()
 	var mesh := CapsuleMesh.new()
 	mesh.radius = radius
 	mesh.height = length + radius * 2.0
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
-	mi.position = Vector3(0, direction * length * 0.5, 0)
+	var limb_basis := Basis.IDENTITY
+	if absf(up.dot(Vector3.UP)) < 0.999:
+		limb_basis = Basis(Quaternion(Vector3.UP, up))
+	mi.transform = Transform3D(limb_basis, (from + to) * 0.5)
 	var mat := _clay_material(color)
 	mi.material_override = mat
 	parent.add_child(mi)
@@ -373,8 +610,8 @@ func _add_capsule(part: Dictionary, parent: Node3D, length: float, radius: float
 	part["shapes"].append([mi, Vector3(0, -length * 0.5, 0), Vector3(0, length * 0.5, 0), radius])
 	var tip: Vector3 = part["tip"]
 	if tip == Vector3.ZERO:
-		part["tip"] = Vector3(0, direction * length, 0)
-		part["axis"] = Vector3(0, direction, 0)
+		part["tip"] = to
+		part["axis"] = up
 
 
 func _add_sphere(part: Dictionary, parent: Node3D, pos: Vector3, radius: float, scale_v: Vector3, color: Color) -> void:
@@ -393,10 +630,73 @@ func _add_sphere(part: Dictionary, parent: Node3D, pos: Vector3, radius: float, 
 	part["shapes"].append([mi, Vector3.ZERO, Vector3.ZERO, pick_radius])
 
 
-func _add_eye(parent: Node3D, pos: Vector3) -> void:
+func _add_box(part: Dictionary, parent: Node3D, pos: Vector3, size: Vector3, color: Color, rot_deg: Vector3 = Vector3.ZERO) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	mi.rotation_degrees = rot_deg
+	var mat := _clay_material(color)
+	mi.material_override = mat
+	parent.add_child(mi)
+	part["materials"].append(mat)
+	# Picking: an exact box. A negative radius marks it as a box; the second entry is its half size.
+	part["shapes"].append([mi, size * 0.5, Vector3.ZERO, -1.0])
+
+
+func _add_cylinder(part: Dictionary, parent: Node3D, pos: Vector3, radius: float, height: float, color: Color) -> void:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = height
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	var mat := _clay_material(color)
+	mi.material_override = mat
+	parent.add_child(mi)
+	part["materials"].append(mat)
+	var reach := maxf(height * 0.5 - radius, 0.0)
+	part["shapes"].append([mi, Vector3(0, -reach, 0), Vector3(0, reach, 0), maxf(radius, height * 0.5 - reach)])
+
+
+func _add_cone(part: Dictionary, parent: Node3D, pos: Vector3, radius: float, height: float, color: Color) -> void:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.0
+	mesh.bottom_radius = radius
+	mesh.height = height
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	var mat := _clay_material(color)
+	mi.material_override = mat
+	parent.add_child(mi)
+	part["materials"].append(mat)
+	part["shapes"].append([mi, Vector3.ZERO, Vector3.ZERO, maxf(radius, height * 0.5) * 0.85])
+
+
+## The goal's net: see-through, so the ball shows behind it.
+func _add_net(parent: Node3D, pos: Vector3, size: Vector3) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1, 1, 1, 0.18)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.roughness = 1.0
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+
+
+func _add_eye(parent: Node3D, pos: Vector3, radius: float) -> void:
 	var mesh := SphereMesh.new()
-	mesh.radius = 0.035
-	mesh.height = 0.07
+	mesh.radius = radius
+	mesh.height = radius * 2.0
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.position = pos
@@ -407,60 +707,190 @@ func _add_eye(parent: Node3D, pos: Vector3) -> void:
 	parent.add_child(mi)
 
 
+func _squash_scale(amount: float) -> Vector3:
+	var side := 1.0 / sqrt(amount)
+	return Vector3(side, amount, side)
+
+
+## Squash and stretch keeps the volume the same: taller means thinner, flatter means wider.
+func _set_squash(figure: Dictionary, amount: float) -> void:
+	figure["squash"] = amount
+	var body: Node3D = figure["body"]
+	if body != null:
+		body.scale = _squash_scale(amount)
+
+
+# ---------------------------------------------------------------- adding, removing, and the scene list
+
+func _add_figure(type: String) -> void:
+	_push_undo()
+	var figure := _spawn(type)
+	selected_figure = figure
+	_refresh_scene_list()
+	_flash_status("Added %s. Use Move to place it, or Lift to raise it." % figure["name"], 5.0)
+
+
+func _remove_selected() -> void:
+	if selected_figure.is_empty() or not (selected_figure["root"] as Node3D).visible:
+		_flash_status("Click a character or prop first, then press Remove.")
+		return
+	var figure := selected_figure
+	_confirm("Remove %s from the scene? You can bring it back with Undo." % figure["name"], func() -> void: _remove_figure(figure))
+
+
+## Removing hides the figure instead of deleting it, so frames that already include it
+## can still be rebuilt, and Undo can bring it back.
+func _remove_figure(figure: Dictionary) -> void:
+	_push_undo()
+	(figure["root"] as Node3D).visible = false
+	_clear_stale_selection()
+	_refresh_scene_list()
+	_flash_status("Removed %s. Undo brings it back." % figure["name"])
+
+
+func _select_figure(figure: Dictionary) -> void:
+	selected_figure = figure
+	var figure_parts: Array = figure["parts"]
+	if not figure_parts.is_empty():
+		_set_highlight(figure_parts[0])
+	_update_selected_label()
+
+
+## Forgets anything selected or highlighted that is no longer in the scene.
+func _clear_stale_selection() -> void:
+	if not selected_figure.is_empty() and not (selected_figure["root"] as Node3D).visible:
+		selected_figure = {}
+	_set_highlight({})
+	hovered = {}
+	active_part = {}
+	_update_selected_label()
+
+
+func _update_selected_label() -> void:
+	if selected_label == null:
+		return
+	selected_label.text = "Selected: none" if selected_figure.is_empty() else "Selected: %s" % selected_figure["name"]
+
+
+func _refresh_scene_list() -> void:
+	if scene_list_box == null:
+		return
+	for child in scene_list_box.get_children():
+		child.queue_free()
+	for figure in figures:
+		if not (figure["root"] as Node3D).visible:
+			continue
+		var row := HBoxContainer.new()
+		var name_button := _make_button(figure["name"], "Select %s." % figure["name"])
+		name_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name_button.pressed.connect(func() -> void: _select_figure(figure))
+		row.add_child(name_button)
+		var remove := _make_button("Remove", "Take %s out of the scene. Undo brings it back." % figure["name"])
+		remove.pressed.connect(func() -> void: _confirm("Remove %s from the scene? You can bring it back with Undo." % figure["name"], func() -> void: _remove_figure(figure)))
+		row.add_child(remove)
+		scene_list_box.add_child(row)
+	_update_selected_label()
+
+
+## The character the shot presets frame: the selected one, or else the first in the scene.
+func _subject_figure() -> Dictionary:
+	if not selected_figure.is_empty() and selected_figure["kind"] == "character" and (selected_figure["root"] as Node3D).visible:
+		return selected_figure
+	for figure in figures:
+		if figure["kind"] == "character" and (figure["root"] as Node3D).visible:
+			return figure
+	return {}
+
+
 # ---------------------------------------------------------------- poses, default pose, undo
 
-## A snapshot of the scene: where the puppet stands, every joint, every stored twist, and the camera.
+## A snapshot of the whole scene: every character and prop that's in it (where it stands,
+## its joints, twists, and squash), plus the camera. Undo, frames, and saved projects all use these.
 func _get_pose() -> Dictionary:
-	var joints: Array = []
-	var twists: Array = []
-	for part in parts:
-		var joint: Node3D = part["joint"]
-		joints.append(joint.transform)
-		twists.append(part["twist"])
-	return {"root": puppet_root.transform, "joints": joints, "twists": twists,
-		"camera": shot_camera.global_transform, "fov": shot_camera.fov}
+	var objects: Array = []
+	for figure in figures:
+		var root: Node3D = figure["root"]
+		if not root.visible:
+			continue
+		var joints: Array = []
+		var twists: Array = []
+		if figure["kind"] == "character":
+			for part in figure["parts"]:
+				var joint: Node3D = part["joint"]
+				joints.append(joint.transform)
+				twists.append(part["twist"])
+		objects.append({"id": figure["id"], "type": figure["type"], "root": root.transform,
+			"joints": joints, "twists": twists, "squash": figure["squash"]})
+	return {"objects": objects, "camera": shot_camera.global_transform, "fov": shot_camera.fov}
 
 
 func _apply_pose(pose: Dictionary) -> void:
-	puppet_root.transform = pose["root"]
-	var joints: Array = pose["joints"]
-	var twists: Array = pose["twists"]
-	for i in parts.size():
-		var joint: Node3D = parts[i]["joint"]
-		joint.transform = joints[i]
-		parts[i]["twist"] = twists[i]
+	var present := {}
+	for obj_value in pose.get("objects", []):
+		var obj: Dictionary = obj_value
+		var figure := _ensure_figure(str(obj.get("type", "")), str(obj.get("id", "")))
+		if figure.is_empty():
+			continue
+		present[figure["id"]] = true
+		_apply_object(figure, obj)
+	for figure in figures:
+		(figure["root"] as Node3D).visible = present.has(figure["id"])
 	shot_camera.global_transform = pose["camera"]
 	shot_camera.fov = pose["fov"]
 	_sync_camera()
+	if not loading:
+		_clear_stale_selection()
+		_refresh_scene_list()
 
 
-func _save_rest_pose() -> void:
-	rest_pose.clear()
-	rest_pose[puppet_root] = puppet_root.transform
-	for part in parts:
-		var joint: Node3D = part["joint"]
-		rest_pose[joint] = joint.transform
+func _apply_object(figure: Dictionary, obj: Dictionary) -> void:
+	var root: Node3D = figure["root"]
+	root.transform = obj["root"]
+	if figure["kind"] == "character":
+		var joints: Array = obj.get("joints", [])
+		var twists: Array = obj.get("twists", [])
+		var figure_parts: Array = figure["parts"]
+		if joints.size() == figure_parts.size():
+			for i in figure_parts.size():
+				var joint: Node3D = figure_parts[i]["joint"]
+				joint.transform = joints[i]
+				figure_parts[i]["twist"] = float(twists[i]) if i < twists.size() else 0.0
+	else:
+		_set_squash(figure, float(obj.get("squash", 1.0)))
 
 
 func _reset_pose() -> void:
 	_push_undo()
-	for node in rest_pose.keys():
-		var n: Node3D = node
-		n.transform = rest_pose[node]
-	for part in parts:
-		part["twist"] = 0.0
-	_flash_status("Puppet reset to its default pose.")
+	for figure in figures:
+		var root: Node3D = figure["root"]
+		if not root.visible:
+			continue
+		root.transform = rest_pose[root]
+		if figure["kind"] == "character":
+			for part in figure["parts"]:
+				var joint: Node3D = part["joint"]
+				joint.transform = rest_pose[joint]
+				part["twist"] = 0.0
+		else:
+			_set_squash(figure, figure["rest_squash"])
+	_flash_status("Everything is back in its default pose.")
 
 
-## Makes the current pose the one Reset Pose returns to.
+## Makes the current scene the one Reset Pose returns to.
 func _set_default_pose() -> void:
-	_save_rest_pose()
-	# Twist is measured from the default pose, so the new default starts with no extra twist.
-	for part in parts:
-		part["twist"] = 0.0
+	for figure in figures:
+		var root: Node3D = figure["root"]
+		rest_pose[root] = root.transform
+		for part in figure["parts"]:
+			var joint: Node3D = part["joint"]
+			rest_pose[joint] = joint.transform
+			# Twist is measured from the default pose, so the new default starts with no extra twist.
+			part["twist"] = 0.0
+		figure["rest_squash"] = figure["squash"]
 	# Older undo steps were measured from the old default, so they no longer apply.
 	undo_stack.clear()
-	_flash_status("Saved this pose as the default. Reset Pose now returns here.")
+	_flash_status("Saved this as the default. Reset Pose now returns here.")
 
 
 func _push_undo() -> void:
@@ -480,17 +910,10 @@ func _undo() -> void:
 
 # ---------------------------------------------------------------- onion skin
 
-## Ghost copies of the puppet show the poses from the last few captured frames.
-func _build_ghosts() -> void:
+## Three see-through magenta materials, fading from the most recent frame to the oldest.
+func _build_ghost_materials() -> void:
 	var tint := [0.55, 0.35, 0.2]
 	for i in 3:
-		var ghost := puppet_root.duplicate() as Node3D
-		ghost.name = "OnionGhost%d" % i
-		add_child(ghost)
-		var joints: Array = []
-		for part in parts:
-			var joint: Node3D = part["joint"]
-			joints.append(ghost.get_node(puppet_root.get_path_to(joint)))
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -500,10 +923,30 @@ func _build_ghosts() -> void:
 		mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		mat.render_priority = 1
 		mat.albedo_color = Color(1.0, 0.2, 0.75, tint[i])
-		_make_ghost_look(ghost, mat)
-		ghost.visible = false
-		ghosts.append(ghost)
-		ghost_joints.append(joints)
+		ghost_materials.append(mat)
+
+
+## A ghost copy of a figure for one onion skin layer, made the first time it's needed.
+func _ghost_for(layer: int, figure: Dictionary) -> Dictionary:
+	var key := "%d:%s" % [layer, figure["id"]]
+	if ghost_pool.has(key):
+		return ghost_pool[key]
+	var root: Node3D = figure["root"]
+	var ghost := root.duplicate() as Node3D
+	ghost.name = "Ghost%d-%s" % [layer, figure["id"]]
+	add_child(ghost)
+	var joints: Array = []
+	if figure["kind"] == "character":
+		for part in figure["parts"]:
+			var joint: Node3D = part["joint"]
+			joints.append(ghost.get_node(root.get_path_to(joint)))
+	var body: Node3D = null
+	if figure["kind"] == "prop":
+		body = ghost.get_node("Body")
+	_make_ghost_look(ghost, ghost_materials[layer])
+	var entry := {"root": ghost, "joints": joints, "body": body}
+	ghost_pool[key] = entry
+	return entry
 
 
 func _make_ghost_look(node: Node, mat: Material) -> void:
@@ -517,20 +960,41 @@ func _make_ghost_look(node: Node, mat: Material) -> void:
 
 
 func _update_ghosts() -> void:
-	for i in ghosts.size():
-		var ghost: Node3D = ghosts[i]
-		var frame_index := frame_poses.size() - 1 - i
-		if i < onion_layers and frame_index >= 0 and not playing:
-			var pose: Dictionary = frame_poses[frame_index]
-			ghost.transform = pose["root"]
-			var joints: Array = ghost_joints[i]
-			var transforms: Array = pose["joints"]
-			for k in joints.size():
-				var j: Node3D = joints[k]
-				j.transform = transforms[k]
-			ghost.visible = true
-		else:
-			ghost.visible = false
+	for key in ghost_pool:
+		(ghost_pool[key]["root"] as Node3D).visible = false
+	if playing:
+		return
+	for layer in mini(onion_layers, 3):
+		var frame_index := frame_poses.size() - 1 - layer
+		if frame_index < 0:
+			break
+		var pose: Dictionary = frame_poses[frame_index]
+		for obj_value in pose.get("objects", []):
+			var obj: Dictionary = obj_value
+			var figure := _find_figure(str(obj.get("id", "")))
+			if figure.is_empty():
+				continue
+			var ghost := _ghost_for(layer, figure)
+			var ghost_root: Node3D = ghost["root"]
+			ghost_root.transform = obj["root"]
+			if figure["kind"] == "character":
+				var joints: Array = ghost["joints"]
+				var transforms: Array = obj.get("joints", [])
+				if transforms.size() == joints.size():
+					for k in joints.size():
+						var j: Node3D = joints[k]
+						j.transform = transforms[k]
+			else:
+				var body: Node3D = ghost["body"]
+				if body != null:
+					body.scale = _squash_scale(float(obj.get("squash", 1.0)))
+			ghost_root.visible = true
+
+
+func _clear_ghosts() -> void:
+	for key in ghost_pool:
+		(ghost_pool[key]["root"] as Node3D).queue_free()
+	ghost_pool.clear()
 
 
 func _set_onion_layers(count: int) -> void:
@@ -856,23 +1320,29 @@ func _frame_shot(size_name: String, angle_deg: float) -> void:
 	if camera_locked:
 		_flash_status("Unlock the camera to change the shot.")
 		return
+	var figure := _subject_figure()
+	if figure.is_empty():
+		_flash_status("Add a character first, so the camera has someone to frame.")
+		return
 	shot_size = size_name
 	shot_angle = angle_deg
 	_camera_change_begins()
 	var subject: Vector3
 	var frame_height: float
-	var torso: Node3D = parts[1]["joint"]
-	var head: Node3D = parts[2]["joint"]
+	var root: Node3D = figure["root"]
+	var torso: Node3D = figure["torso"]
+	var head: Node3D = figure["head"]
+	var height: float = figure["height"]
 	match size_name:
 		"wide":
-			subject = puppet_root.global_position + Vector3(0, 0.82, 0)
-			frame_height = 2.3
+			subject = root.global_position + Vector3(0, height * 0.51, 0)
+			frame_height = height * 1.45
 		"medium":
-			subject = torso.global_position + Vector3(0, 0.35, 0)
-			frame_height = 1.15
+			subject = torso.global_position + Vector3(0, height * 0.22, 0)
+			frame_height = height * 0.72
 		_:
-			subject = head.to_global(Vector3(0, 0.2, 0))
-			frame_height = 0.6
+			subject = head.to_global(figure["head_center"])
+			frame_height = height * 0.375
 	var distance := (frame_height * 0.5) / tan(deg_to_rad(shot_camera.fov) * 0.5)
 	var flat := shot_camera.global_position - subject
 	flat.y = 0.0
@@ -945,6 +1415,10 @@ func _unhandled_input(event: InputEvent) -> void:
 					_twist(mm.relative)
 				"move":
 					_move_to(mm.position)
+				"lift":
+					_lift(mm.relative)
+				"squash":
+					_squash_drag(mm.relative)
 				"grab_camera":
 					_grab_camera_to(mm.position)
 				"orbit":
@@ -971,6 +1445,12 @@ func _unhandled_input(event: InputEvent) -> void:
 					_set_tool("twist")
 				KEY_M:
 					_set_tool("move")
+				KEY_U:
+					_set_tool("lift")
+				KEY_Q:
+					_set_tool("squash")
+				KEY_DELETE, KEY_BACKSPACE:
+					_remove_selected()
 				KEY_C:
 					_toggle_view()
 				KEY_O:
@@ -1027,14 +1507,29 @@ func _begin_drag(screen_pos: Vector2) -> void:
 
 	var part: Dictionary = hit["part"]
 	var point: Vector3 = hit["point"]
+	var figure: Dictionary = part["figure"]
 	active_part = part
+	grab_figure = figure
+	selected_figure = figure
+	_update_selected_label()
 	_set_highlight(part)
 	drag_mode = current_tool
 	undo_pending = true
 	Input.set_default_cursor_shape(Input.CURSOR_DRAG)
 
+	if current_tool == "squash" and figure["kind"] != "prop":
+		drag_mode = "none"
+		undo_pending = false
+		_flash_status("Squash works on props. Try it on a ball!")
+		return
+
 	match current_tool:
 		"bend":
+			if part["is_prop"]:
+				var prop_root: Node3D = figure["root"]
+				grab_local = prop_root.to_local(point)
+				grab_screen_offset = _active_cam().unproject_position(point) - _cam_coords(screen_pos)
+				return
 			var joint: Node3D = part["joint"]
 			grab_local = joint.to_local(point)
 			# A click right next to the joint gives almost no leverage, so grab the far end instead.
@@ -1044,8 +1539,9 @@ func _begin_drag(screen_pos: Vector2) -> void:
 			# so the part never jumps when the drag starts.
 			grab_screen_offset = _active_cam().unproject_position(joint.to_global(grab_local)) - _cam_coords(screen_pos)
 		"move":
+			var figure_root: Node3D = figure["root"]
 			move_plane_y = point.y
-			move_offset = puppet_root.position - point
+			move_offset = figure_root.position - point
 
 
 func _end_drag(screen_pos: Vector2) -> void:
@@ -1053,6 +1549,7 @@ func _end_drag(screen_pos: Vector2) -> void:
 	drag_mode = ""
 	undo_pending = false
 	active_part = {}
+	grab_figure = {}
 	hovered = {}
 	hovered_camera = false
 	_update_indicator()
@@ -1097,14 +1594,20 @@ func _pick_part(screen_pos: Vector2) -> Dictionary:
 	var best: Dictionary = {}
 	var best_t := INF
 	for part in parts:
+		var figure_root: Node3D = part["figure"]["root"]
+		if not figure_root.visible:
+			continue
 		for shape in part["shapes"]:
 			var mi: MeshInstance3D = shape[0]
 			var local_a: Vector3 = shape[1]
 			var local_b: Vector3 = shape[2]
 			var radius: float = shape[3]
-			var a := mi.global_transform * local_a
-			var b := mi.global_transform * local_b
-			var t := _ray_capsule(origin, far_point, a, b, radius)
+			var t := INF
+			if radius < 0.0:
+				# Boxes are picked exactly (local_a holds the box's half size).
+				t = _ray_box(origin, dir, mi, local_a)
+			else:
+				t = _ray_capsule(origin, far_point, mi.global_transform * local_a, mi.global_transform * local_b, radius)
 			if t < best_t:
 				best_t = t
 				best = {"part": part, "point": origin + dir * t, "t": t}
@@ -1122,6 +1625,28 @@ func _pick_camera(screen_pos: Vector2) -> float:
 	var head_t := _ray_capsule(origin, far_point, cam_pos, cam_pos, CAMERA_PICK_RADIUS)
 	var pole_t := _ray_capsule(origin, far_point, cam_pos, Vector3(cam_pos.x, 0.0, cam_pos.z), 0.06)
 	return minf(head_t, pole_t)
+
+
+## Distance along a ray to a box mesh (half = half its size, in the mesh's own space), or INF for a miss.
+func _ray_box(origin: Vector3, dir: Vector3, mi: MeshInstance3D, half: Vector3) -> float:
+	var world_to_mesh := mi.global_transform.affine_inverse()
+	var o := world_to_mesh * origin
+	var d := world_to_mesh.basis * dir
+	var t_near := -INF
+	var t_far := INF
+	for i in 3:
+		if absf(d[i]) < 0.000001:
+			if absf(o[i]) > half[i]:
+				return INF
+		else:
+			var t1 := (-half[i] - o[i]) / d[i]
+			var t2 := (half[i] - o[i]) / d[i]
+			t_near = maxf(t_near, minf(t1, t2))
+			t_far = minf(t_far, maxf(t1, t2))
+	if t_far < maxf(t_near, 0.0):
+		return INF
+	var t_local := t_near if t_near > 0.0 else t_far
+	return origin.distance_to(mi.global_transform * (o + d * t_local))
 
 
 ## Distance along a ray to a capsule (a sphere when a == b), or INF for a miss.
@@ -1172,6 +1697,9 @@ func _ray_to_sphere(origin: Vector3, dir: Vector3, center: Vector3, radius: floa
 ## The spot can only travel on a sphere around the joint (the part can't stretch),
 ## so the target is where the cursor's ray meets that sphere.
 func _bend(screen_pos: Vector2) -> void:
+	if active_part["is_prop"]:
+		_bend_prop(screen_pos)
+		return
 	var joint: Node3D = active_part["joint"]
 	var pivot := joint.global_position
 	var grab := joint.to_global(grab_local)
@@ -1194,10 +1722,60 @@ func _bend(screen_pos: Vector2) -> void:
 	_aim_part(active_part, new_dir)
 
 
-## Twist: dragging left or right turns the part around its own length.
+## Twist: dragging left or right turns a body part around its own length, or spins a prop in place.
 func _twist(rel: Vector2) -> void:
+	if active_part["is_prop"]:
+		var figure: Dictionary = active_part["figure"]
+		var body: Node3D = figure["body"]
+		_rotate_figure_about(figure["root"], body.to_global(figure["center"]), Basis(Vector3.UP, rel.x * TWIST_SPEED))
+		return
 	active_part["twist"] = float(active_part["twist"]) + rel.x * TWIST_SPEED
 	_aim_part(active_part, _bone_direction(active_part))
+
+
+## Bend on a prop: the grabbed spot follows the cursor, tipping and rolling the prop around its center.
+func _bend_prop(screen_pos: Vector2) -> void:
+	var figure: Dictionary = active_part["figure"]
+	var root: Node3D = figure["root"]
+	var body: Node3D = figure["body"]
+	var center := body.to_global(figure["center"])
+	var grab := root.to_global(grab_local)
+	var reach := grab.distance_to(center)
+	if reach < 0.03:
+		return
+	var cam := _active_cam()
+	var aim := _cam_coords(screen_pos) + grab_screen_offset
+	var target := _ray_to_sphere(cam.project_ray_origin(aim), cam.project_ray_normal(aim), center, reach, grab)
+	var from_v := grab - center
+	var to_v := target - center
+	if from_v.length() < 0.03 or to_v.length() < 0.03:
+		return
+	_rotate_figure_about(root, center, Basis(Quaternion(from_v.normalized(), to_v.normalized())))
+
+
+## Turns a whole figure around a point in the world.
+func _rotate_figure_about(root: Node3D, center: Vector3, rot: Basis) -> void:
+	var t := root.global_transform
+	t.origin = center + rot * (t.origin - center)
+	t.basis = (rot * t.basis).orthonormalized()
+	root.global_transform = t
+
+
+## Lift: drag up to raise whatever you grabbed off the table, down to lower it (for jumps and bounces).
+func _lift(rel: Vector2) -> void:
+	if grab_figure.is_empty():
+		return
+	var root: Node3D = grab_figure["root"]
+	var step := LIFT_SPEED * (1.0 if camera_view else orbit_distance / DEFAULT_DISTANCE)
+	root.position.y = clampf(root.position.y - rel.y * step, 0.0, 3.0)
+
+
+## Squash: drag up to stretch a prop tall and thin, down to squash it short and wide.
+func _squash_drag(rel: Vector2) -> void:
+	if grab_figure.is_empty() or grab_figure["kind"] != "prop":
+		return
+	var amount: float = grab_figure["squash"]
+	_set_squash(grab_figure, clampf(amount * exp(-rel.y * SQUASH_SPEED), 0.35, 2.5))
 
 
 ## The way a part currently points, in world space.
@@ -1221,21 +1799,28 @@ func _aim_part(part: Dictionary, world_dir: Vector3) -> void:
 		# Pointing exactly opposite its default direction has no unique swing; nudge it slightly.
 		local_dir = (local_dir + rest.basis.z.normalized() * 0.02).normalized()
 	var swing := Basis(Quaternion(rest_dir, local_dir))
-	var twist := Basis(Vector3.UP, float(part["twist"]))
+	# Twist turns around the part's own length (kept pointing "up-ish" so the turn direction stays consistent).
+	var twist_axis := axis.normalized()
+	if twist_axis.y < -0.5:
+		twist_axis = -twist_axis
+	var twist := Basis(twist_axis, float(part["twist"]))
 	joint.basis = (swing * rest.basis * twist).orthonormalized()
 
 
-## Move: the whole puppet slides across the tabletop under the cursor.
+## Move: whatever you grabbed slides across the tabletop under the cursor.
 func _move_to(screen_pos: Vector2) -> void:
+	if grab_figure.is_empty():
+		return
 	var hit_v: Variant = _ray_hit_plane(screen_pos, Plane(Vector3.UP, move_plane_y))
 	if hit_v == null:
 		return
+	var root: Node3D = grab_figure["root"]
 	var target: Vector3 = hit_v
 	var p := target + move_offset
-	p.y = puppet_root.position.y
+	p.y = root.position.y
 	p.x = clampf(p.x, -3.2, 3.2)
 	p.z = clampf(p.z, -2.0, 2.8)
-	puppet_root.position = p
+	root.position = p
 
 
 ## Grabbing the tripod: it slides across the table under the cursor, keeping its height and aim.
@@ -1530,7 +2115,7 @@ func _build_ui() -> void:
 	toolbar_rows.add_child(row1)
 
 	var indicator_box := HBoxContainer.new()
-	indicator_box.tooltip_text = "Mode light: green = Bend, yellow = Twist, purple = Move Puppet, red = Camera."
+	indicator_box.tooltip_text = "Mode light: green = Bend, yellow = Twist, purple = Move, white = Lift, pink = Squash, red = Camera."
 	indicator_box.mouse_filter = Control.MOUSE_FILTER_STOP
 	indicator_box.custom_minimum_size = Vector2(150, 0)
 	row1.add_child(indicator_box)
@@ -1561,7 +2146,9 @@ func _build_ui() -> void:
 	for entry in [
 		["bend", "Bend (B)", "Drag a body part to pull it into place. The spot you grab follows your cursor."],
 		["twist", "Twist (T)", "Drag a body part left or right to turn it around its own length, like turning a head."],
-		["move", "Move Puppet (M)", "Drag the puppet to slide it across the table."],
+		["move", "Move (M)", "Drag a character or prop to slide it across the table."],
+		["lift", "Lift (U)", "Drag up to raise a character or prop off the table, down to lower it. Great for jumps and bounces."],
+		["squash", "Squash (Q)", "Drag up to stretch a prop tall and thin, down to squash it flat. Try it on a bouncing ball!"],
 	]:
 		var b := _add_tool_button(flow, tool_group, entry[0], entry[1], entry[2])
 		tool_buttons[entry[0]] = b
@@ -1587,8 +2174,21 @@ func _build_ui() -> void:
 	_add_divider(flow)
 	_add_group_label(flow, "POSE")
 	_add_button(flow, "Undo (Ctrl+Z)", "Undo the last posing or camera change.", _undo)
-	_add_button(flow, "Reset Pose", "Put the puppet back in its default pose.", _reset_pose)
-	_add_button(flow, "Set as Default Pose", "Make the current pose the one Reset Pose returns to.", _set_default_pose)
+	_add_button(flow, "Reset Pose", "Put every character and prop back in its default pose.", _reset_pose)
+	_add_button(flow, "Set as Default Pose", "Make the current scene the one Reset Pose returns to.", _set_default_pose)
+
+	_add_divider(flow)
+	_add_group_label(flow, "SCENE")
+	flow.add_child(_make_menu_button("Add Character", "Add a person or animal to the scene.", CHARACTER_TYPES, _add_figure))
+	flow.add_child(_make_menu_button("Add Prop", "Add an object to the scene.", PROP_TYPES, _add_figure))
+	_add_button(flow, "Remove", "Take the selected character or prop (the last one you clicked) out of the scene. (Delete)", _remove_selected)
+	var list_button := _make_button("Scene List", "Show everything in the scene.")
+	list_button.toggle_mode = true
+	list_button.toggled.connect(func(on: bool) -> void: scene_list_panel.visible = on)
+	flow.add_child(list_button)
+	selected_label = Label.new()
+	selected_label.add_theme_color_override("font_color", Color(0.75, 0.77, 0.82))
+	flow.add_child(selected_label)
 
 	_add_divider(flow)
 	_add_group_label(flow, "PROJECT")
@@ -1682,8 +2282,10 @@ func _build_ui() -> void:
 	var help_text := Label.new()
 	help_text.text = "HOW TO USE THE STUDIO\n" \
 		+ "Hover over any button to see what it does.\n" \
-		+ "The light at the top left shows your mode: green Bend, yellow Twist, purple Move Puppet, red Camera.\n" \
-		+ "Hover over the puppet: the part you'd grab glows.\n" \
+		+ "The light at the top left shows your mode: green Bend, yellow Twist, purple Move, white Lift, pink Squash, red Camera.\n" \
+		+ "Add Character and Add Prop put new things in the scene. Click something to select it; Remove takes it out.\n" \
+		+ "Bend and Twist work on props too. Lift raises anything off the table. Squash stretches and flattens props.\n" \
+		+ "Hover over a character or prop: the part you'd grab glows.\n" \
 		+ "Drag empty space, right-drag, or use arrow keys to look around (Studio View).\n" \
 		+ "Camera View (C): pose while looking through the shot camera.\n" \
 		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
@@ -1691,6 +2293,22 @@ func _build_ui() -> void:
 		+ "Space: capture a frame. P: play your animation. Ctrl+Z: undo.\n" \
 		+ "Your work autosaves in this browser on this computer. Save Project makes a file you can open anywhere."
 	help_panel.add_child(help_text)
+
+	# ---- Scene list (hidden until Scene List is pressed).
+	scene_list_panel = PanelContainer.new()
+	scene_list_panel.visible = false
+	scene_list_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	scene_list_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	column.add_child(scene_list_panel)
+	var list_column := VBoxContainer.new()
+	list_column.custom_minimum_size = Vector2(260, 0)
+	scene_list_panel.add_child(list_column)
+	var list_title := Label.new()
+	list_title.text = "IN THE SCENE"
+	list_title.add_theme_font_size_override("font_size", 14)
+	list_column.add_child(list_title)
+	scene_list_box = VBoxContainer.new()
+	list_column.add_child(scene_list_box)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1851,20 +2469,25 @@ func _build_ui() -> void:
 
 # ---------------------------------------------------------------- projects and autosave
 
-## Everything needed to rebuild the animation. Frames are saved as poses, not pictures,
+## Everything needed to rebuild the animation. Frames are saved as scene snapshots, not pictures,
 ## so project files stay tiny; the pictures are re-rendered when a project opens.
 func _project_data() -> Dictionary:
-	var rest_joints: Array = []
-	for part in parts:
-		var joint: Node3D = part["joint"]
-		rest_joints.append(rest_pose[joint])
+	var rest := {}
+	for figure in figures:
+		var root: Node3D = figure["root"]
+		var joints: Array = []
+		if figure["kind"] == "character":
+			for part in figure["parts"]:
+				var joint: Node3D = part["joint"]
+				joints.append(rest_pose[joint])
+		rest[figure["id"]] = {"type": figure["type"], "root": rest_pose[root], "joints": joints, "squash": figure["rest_squash"]}
 	return {
 		"app": APP_NAME,
 		"version": PROJECT_VERSION,
 		"name": export_name.text,
 		"fps": playback_fps,
 		"onion": onion_layers,
-		"rest": {"root": rest_pose[puppet_root], "joints": rest_joints},
+		"rest": rest,
 		"camera_default": {"transform": camera_default, "fov": camera_default_fov},
 		"current": _get_pose(),
 		"frames": frame_poses,
@@ -1886,10 +2509,34 @@ func _parse_project(text: String) -> Dictionary:
 	var project: Dictionary = data
 	if project.get("app", "") != APP_NAME:
 		return {"error": "That file isn't a claymation project."}
-	var rest: Dictionary = project.get("rest", {})
+	if int(project.get("version", 1)) == 1:
+		project = _upgrade_v1_project(project)
+	if project.has("error") or typeof(project.get("rest")) != TYPE_DICTIONARY:
+		return {"error": "That project file is damaged or from a newer version, so it can't be opened here."}
+	return project
+
+
+## Projects saved before props and characters had one puppet. This turns that into a scene with one Kid.
+func _upgrade_v1_project(old: Dictionary) -> Dictionary:
+	var rest: Dictionary = old.get("rest", {})
 	var joints: Array = rest.get("joints", [])
-	if joints.size() != parts.size():
-		return {"error": "That project was made with a different puppet, so it can't be opened here."}
+	if joints.size() != 11:
+		return {"error": "unknown puppet"}
+	var to_scene := func(pose: Dictionary) -> Dictionary:
+		return {
+			"objects": [{"id": "kid-1", "type": "kid", "root": pose.get("root", Transform3D.IDENTITY),
+				"joints": pose.get("joints", []), "twists": pose.get("twists", []), "squash": 1.0}],
+			"camera": pose.get("camera", factory_camera), "fov": pose.get("fov", factory_fov),
+		}
+	var frames: Array = []
+	for frame in old.get("frames", []):
+		frames.append(to_scene.call(frame))
+	var project := old.duplicate()
+	project["rest"] = {"kid-1": {"type": "kid", "root": rest.get("root", Transform3D.IDENTITY), "joints": joints, "squash": 1.0}}
+	project["frames"] = frames
+	if old.has("current"):
+		project["current"] = to_scene.call(old["current"])
+	project["version"] = 2
 	return project
 
 
@@ -1906,12 +2553,22 @@ func _apply_project(project: Dictionary) -> void:
 	loading = true
 	if playing:
 		_stop_playback()
+	_clear_scene()
 	var rest: Dictionary = project["rest"]
-	rest_pose[puppet_root] = rest["root"]
-	var joints: Array = rest["joints"]
-	for i in parts.size():
-		var joint: Node3D = parts[i]["joint"]
-		rest_pose[joint] = joints[i]
+	for id in rest:
+		var info: Dictionary = rest[id]
+		var figure := _ensure_figure(str(info.get("type", "")), str(id))
+		if figure.is_empty():
+			continue
+		var root: Node3D = figure["root"]
+		rest_pose[root] = info.get("root", root.transform)
+		var joints: Array = info.get("joints", [])
+		var figure_parts: Array = figure["parts"]
+		if figure["kind"] == "character" and joints.size() == figure_parts.size():
+			for i in figure_parts.size():
+				var joint: Node3D = figure_parts[i]["joint"]
+				rest_pose[joint] = joints[i]
+		figure["rest_squash"] = float(info.get("squash", 1.0))
 	var cam: Dictionary = project.get("camera_default", {})
 	camera_default = cam.get("transform", factory_camera)
 	camera_default_fov = cam.get("fov", factory_fov)
@@ -1926,9 +2583,28 @@ func _apply_project(project: Dictionary) -> void:
 		current = frame_poses[frame_poses.size() - 1]
 	if not current.is_empty():
 		_apply_pose(current)
-	_update_ghosts()
 	loading = false
+	selected_figure = _subject_figure()
+	_clear_stale_selection()
+	_refresh_scene_list()
+	_update_ghosts()
 	last_saved_text = ""
+
+
+## Takes every character and prop out of the scene for good (New Project and opening a project).
+func _clear_scene() -> void:
+	_set_highlight({})
+	hovered = {}
+	active_part = {}
+	grab_figure = {}
+	selected_figure = {}
+	_clear_ghosts()
+	for figure in figures:
+		(figure["root"] as Node3D).free()
+	figures.clear()
+	parts.clear()
+	rest_pose.clear()
+	next_number.clear()
 
 
 ## Re-renders every frame from its saved pose through the shot camera.
@@ -1940,8 +2616,8 @@ func _rebuild_frames() -> void:
 	busy_overlay.visible = true
 	capturing = true
 	_set_highlight({})
-	for ghost in ghosts:
-		ghost.visible = false
+	for key in ghost_pool:
+		(ghost_pool[key]["root"] as Node3D).visible = false
 	shot_camera.cull_mask = SHOT_CAPTURE_MASK
 	var count := frame_poses.size()
 	for i in count:
@@ -1958,12 +2634,8 @@ func _rebuild_frames() -> void:
 func _new_project() -> void:
 	if playing:
 		_stop_playback()
-	rest_pose = factory_rest.duplicate()
-	for part in parts:
-		part["twist"] = 0.0
-	for node in rest_pose.keys():
-		var n: Node3D = node
-		n.transform = rest_pose[node]
+	_clear_scene()
+	selected_figure = _spawn("kid", "", Vector3.ZERO)
 	camera_default = factory_camera
 	camera_default_fov = factory_fov
 	shot_camera.global_transform = factory_camera
@@ -1977,6 +2649,7 @@ func _new_project() -> void:
 	_set_onion_layers(1)
 	_update_frame_info()
 	_update_ghosts()
+	_refresh_scene_list()
 	_flash_status("Started a new project.")
 
 
@@ -2361,6 +3034,22 @@ func _add_button(parent: Control, text: String, tip: String, action: Callable) -
 	b.pressed.connect(action)
 	parent.add_child(b)
 	return b
+
+
+## A button that opens a menu of choices (like Add Prop). catalog: {type: name}.
+func _make_menu_button(text: String, tip: String, catalog: Dictionary, action: Callable) -> MenuButton:
+	var mb := MenuButton.new()
+	mb.text = text + "..."
+	mb.tooltip_text = tip
+	mb.flat = false
+	mb.focus_mode = Control.FOCUS_NONE
+	var popup := mb.get_popup()
+	popup.theme = ui_theme
+	var keys: Array = catalog.keys()
+	for i in keys.size():
+		popup.add_item(str(catalog[keys[i]]), i)
+	popup.id_pressed.connect(func(index: int) -> void: action.call(str(keys[index])))
+	return mb
 
 
 func _fill_preview(rect: TextureRect) -> void:
