@@ -16,7 +16,7 @@ const CAM_ZOOM_SPEED := 0.08
 const FRAME_RATES := [10, 12, 15, 24, 30, 60]
 const DEFAULT_FPS := 12
 const APP_NAME := "Virtual Claymation Studio"
-const PROJECT_VERSION := 2
+const PROJECT_VERSION := 3
 const PROJECT_EXT := "clay"
 const AUTOSAVE_PATH := "user://autosave.claymation"
 const AUTOSAVE_SECONDS := 5.0
@@ -33,6 +33,8 @@ const MAX_UNDO := 50
 const CAMERA_PICK_RADIUS := 0.22
 const LIFT_SPEED := 0.004
 const SQUASH_SPEED := 0.008
+const MAX_SHOTS := 30
+const SHOT_LABEL_MAX := 40
 
 # What students can add to the scene.
 const CHARACTER_TYPES := {"kid": "Kid", "man": "Man", "woman": "Woman", "dog": "Dog", "cat": "Cat"}
@@ -132,9 +134,17 @@ var grab_figure: Dictionary = {}
 var undo_stack: Array[Dictionary] = []
 var undo_pending := false
 
-# Frames, playback, and onion skin.
+# Shots. A shot is one camera setup and the frames captured through it. Each shot is a Dictionary:
+#   {label, poses (one scene snapshot per frame), textures (the frame pictures), undo (its own undo steps),
+#    working (the scene as the student left it when they switched away; {} if never left)}
+# frame_poses, frame_textures, and undo_stack always point at the active shot's arrays (see _bind_active_shot).
+var shots: Array[Dictionary] = []
+var active_shot := 0
+
+# Frames, playback, and onion skin (all for the active shot).
 var frame_textures: Array[ImageTexture] = []
 var frame_poses: Array[Dictionary] = []
+var play_list: Array[ImageTexture] = []   # What Play or Play All is showing.
 var capturing := false
 var playing := false
 var play_index := 0
@@ -151,6 +161,8 @@ var indicator_style: StyleBoxFlat
 var indicator_label: Label
 var status_panel: PanelContainer
 var status_label: Label
+var status_action_button: Button   # Optional button in a status message, like Start New Shot.
+var status_action: Callable
 var status_timer := 0.0
 var fps_label: Label
 var lens_label: Label
@@ -168,6 +180,10 @@ var toolbar: PanelContainer
 var shot_panel: PanelContainer
 var help_panel: PanelContainer
 var play_button: Button
+var play_all_button: Button
+var shot_cards: HBoxContainer
+var shot_scroll: ScrollContainer
+var shot_label_edit: LineEdit
 var lock_button: Button
 var tool_buttons: Dictionary = {}
 var view_buttons: Dictionary = {}
@@ -185,6 +201,8 @@ var export_panel: PanelContainer
 var export_name: LineEdit
 var export_status: Label
 var export_format := "png"
+var export_scope := "all"           # MP4 and GIF: "all" shots in order, or "this" shot only.
+var export_scope_row: HBoxContainer
 var exporting := false
 var js_ready := false
 var js_callback: JavaScriptObject   # Kept alive so the browser can keep calling back into Godot.
@@ -219,6 +237,8 @@ func _ready() -> void:
 	_build_ghost_materials()
 	_build_work_camera()
 	_build_shot_camera()
+	shots.append(_make_shot())
+	_bind_active_shot()
 	selected_figure = _spawn("kid", "", Vector3.ZERO)
 	_build_ui()
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -1107,7 +1127,10 @@ func _set_default_pose() -> void:
 			part["twist"] = 0.0
 		figure["rest_squash"] = figure["squash"]
 	# Older undo steps were measured from the old default, so they no longer apply.
-	undo_stack.clear()
+	# (Every shot's, except the ones that bring back a deleted shot.)
+	for shot in shots:
+		var undo: Array[Dictionary] = shot["undo"]
+		undo.assign(undo.filter(func(step: Dictionary) -> bool: return step.has("restore_shot")))
 	_flash_status("Saved this as the default. Reset Pose now returns here.")
 
 
@@ -1122,6 +1145,9 @@ func _undo() -> void:
 		_flash_status("Nothing to undo.")
 		return
 	var pose: Dictionary = undo_stack.pop_back()
+	if pose.has("restore_shot"):
+		_restore_deleted_shot(pose["restore_shot"], int(pose["index"]))
+		return
 	_apply_pose(pose)
 	_flash_status("Undid the last change.")
 
@@ -1298,8 +1324,7 @@ func _set_view(through_camera: bool) -> void:
 		camera_border.visible = camera_view
 		camera_screen.visible = camera_view
 		preview.visible = not camera_view
-		shot_title.text = "You're looking through the shot camera" if camera_view \
-			else "SHOT CAMERA: this is what gets captured"
+		_update_shot_title()
 		var key := "camera" if camera_view else "studio"
 		var b: Button = view_buttons[key]
 		b.button_pressed = true
@@ -1504,7 +1529,7 @@ func _warn_camera_moved() -> void:
 		return
 	camera_warned = true
 	_flash_status("Heads up: moving the camera after capturing frames makes your animation jump. "
-		+ "Start a new shot if you want a new angle.", 6.0)
+		+ "Want a new angle? Start a new shot.", 8.0, "Start New Shot", _new_shot.bind(true))
 
 
 func _camera_change_begins() -> void:
@@ -1670,7 +1695,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_SPACE:
 					_capture_frame()
 				KEY_P:
-					_toggle_playback()
+					_toggle_playback(k.shift_pressed)
 				KEY_B:
 					_set_tool("bend")
 				KEY_T:
@@ -2157,38 +2182,62 @@ func _update_frame_info() -> void:
 		last_frame_rect.texture = null
 	else:
 		last_frame_rect.texture = frame_textures[frame_textures.size() - 1]
+	_refresh_shot_strip()
 
 
-func _toggle_playback() -> void:
+## Play shows the active shot. Play All (all_shots) shows every shot in order, like a rough cut.
+func _toggle_playback(all_shots: bool = false) -> void:
 	if playing:
 		_stop_playback()
-	elif frame_textures.size() > 0:
-		if camera_view:
-			_set_view(false)
-		playing = true
-		play_index = 0
-		play_time = 0.0
-		playback_rect.texture = frame_textures[0]
-		playback_rect.visible = true
-		play_button.text = "Stop (P)"
-		_update_ghosts()
+		return
+	play_list.clear()
+	if all_shots:
+		for shot in shots:
+			var textures: Array[ImageTexture] = shot["textures"]
+			play_list.append_array(textures)
 	else:
+		play_list.append_array(frame_textures)
+	if play_list.is_empty():
 		_flash_status("Capture some frames first, then press Play.")
+		return
+	if camera_view:
+		_set_view(false)
+	playing = true
+	play_index = 0
+	play_time = 0.0
+	playback_rect.texture = play_list[0]
+	playback_rect.visible = true
+	var stop_button := play_all_button if all_shots else play_button
+	stop_button.text = "Stop (P)"
+	_update_ghosts()
 
 
 func _stop_playback() -> void:
 	playing = false
+	play_list.clear()
 	playback_rect.visible = false
 	play_button.text = "Play (P)"
+	play_all_button.text = "Play All"
 	_update_ghosts()
 
 
-func _flash_status(text: String, seconds: float = 3.0) -> void:
+## Shows a message under the toolbar. action_text and action add a button to the message.
+func _flash_status(text: String, seconds: float = 3.0, action_text: String = "", action: Callable = Callable()) -> void:
 	if status_label == null:
 		return
 	status_label.text = text
+	status_action = action
+	status_action_button.text = action_text
+	status_action_button.visible = action.is_valid()
 	status_panel.visible = true
 	status_timer = seconds
+
+
+func _on_status_action() -> void:
+	status_panel.visible = false
+	status_timer = 0.0
+	if status_action.is_valid():
+		status_action.call()
 
 
 func _process(delta: float) -> void:
@@ -2238,13 +2287,266 @@ func _process(delta: float) -> void:
 			orbit_pitch += tilt * 1.0 * delta
 			_update_orbit()
 
-	if playing and frame_textures.size() > 0:
+	if playing and play_list.size() > 0:
 		play_time += delta
 		var step := 1.0 / float(playback_fps)
 		while play_time >= step:
 			play_time -= step
-			play_index = (play_index + 1) % frame_textures.size()
-		playback_rect.texture = frame_textures[play_index]
+			play_index = (play_index + 1) % play_list.size()
+		playback_rect.texture = play_list[play_index]
+
+
+# ---------------------------------------------------------------- shots
+
+func _make_shot(label: String = "") -> Dictionary:
+	var poses: Array[Dictionary] = []
+	var textures: Array[ImageTexture] = []
+	var undo: Array[Dictionary] = []
+	return {"label": label, "poses": poses, "textures": textures, "undo": undo, "working": {}}
+
+
+## Points frame_poses, frame_textures, and undo_stack at the active shot's own arrays,
+## so capture, delete, onion skin, and undo all work on that shot.
+func _bind_active_shot() -> void:
+	var shot: Dictionary = shots[active_shot]
+	frame_poses = shot["poses"]
+	frame_textures = shot["textures"]
+	undo_stack = shot["undo"]
+
+
+## "Shot 2", or "Shot 2 (CU of Kid's face)" when it has a label.
+func _shot_name(index: int) -> String:
+	var label := str(shots[index]["label"]).strip_edges()
+	return "Shot %d" % (index + 1) if label == "" else "Shot %d (%s)" % [index + 1, label]
+
+
+func _total_frames() -> int:
+	var total := 0
+	for shot in shots:
+		total += (shot["poses"] as Array).size()
+	return total
+
+
+## Puts the scene and camera back where the active shot was left: where the student
+## was working when they switched away, or else its last frame.
+func _load_shot_scene() -> void:
+	var shot: Dictionary = shots[active_shot]
+	var pose: Dictionary = shot["working"]
+	if pose.is_empty() and not frame_poses.is_empty():
+		pose = frame_poses[frame_poses.size() - 1]
+	if not pose.is_empty():
+		_apply_pose(pose)
+	camera_warned = false
+	shot_label_edit.text = str(shot["label"])
+	_update_shot_title()
+	_update_frame_info()
+	_update_ghosts()
+
+
+func _switch_shot(index: int) -> void:
+	if index == active_shot or capturing or exporting or loading:
+		_refresh_shot_strip()
+		return
+	if playing:
+		_stop_playback()
+	shots[active_shot]["working"] = _get_pose()
+	active_shot = index
+	_bind_active_shot()
+	_load_shot_scene()
+	_flash_status("Now working on %s." % _shot_name(index))
+
+
+## Starts a new shot right after the active one. It picks up exactly where the active shot
+## leaves off (same characters, poses, and camera), so the action can continue across the cut.
+## from_warning: started from the "moved the camera" warning, so the old shot keeps its old camera.
+func _new_shot(from_warning: bool = false) -> void:
+	if capturing or exporting or loading:
+		return
+	if shots.size() >= MAX_SHOTS:
+		_flash_status("That's the most shots one project can hold (%d)." % MAX_SHOTS)
+		return
+	if playing:
+		_stop_playback()
+	var working := _get_pose()
+	if from_warning and not frame_poses.is_empty():
+		var last: Dictionary = frame_poses[frame_poses.size() - 1]
+		working["camera"] = last["camera"]
+		working["fov"] = last["fov"]
+	shots[active_shot]["working"] = working
+	var from_name := "Shot %d" % (active_shot + 1)
+	active_shot += 1
+	shots.insert(active_shot, _make_shot())
+	_bind_active_shot()
+	camera_warned = false
+	shot_label_edit.text = ""
+	_update_shot_title()
+	_update_frame_info()
+	_update_ghosts()
+	var next_step := "Unlock the camera (L) and set up your new angle, then capture." if camera_locked \
+		else "Set up your new angle, then capture."
+	_flash_status("Started Shot %d. It picks up where %s left off. %s" % [active_shot + 1, from_name, next_step], 7.0)
+
+
+## Moves the active shot one place earlier (-1) or later (+1) in the order.
+func _move_shot(direction: int) -> void:
+	var to := active_shot + direction
+	if to < 0 or to >= shots.size():
+		_flash_status("That's already the %s shot." % ("first" if direction < 0 else "last"))
+		return
+	var shot: Dictionary = shots[active_shot]
+	shots.remove_at(active_shot)
+	shots.insert(to, shot)
+	active_shot = to
+	_update_shot_title()
+	_refresh_shot_strip()
+	_flash_status("Moved it. It's now Shot %d." % (to + 1))
+
+
+func _on_shot_label_changed(text: String) -> void:
+	shots[active_shot]["label"] = text
+	_update_shot_title()
+	_refresh_shot_strip()
+
+
+func _delete_shot_pressed() -> void:
+	if shots.size() <= 1:
+		_flash_status("A project needs at least one shot. To remove frames, use Delete Last Frame.", 5.0)
+		return
+	var count := frame_poses.size()
+	_confirm("Delete %s and its %d frame%s? You can press Undo right after to bring it back." % [
+		_shot_name(active_shot), count, "" if count == 1 else "s"], _delete_shot)
+
+
+func _delete_shot() -> void:
+	if playing:
+		_stop_playback()
+	var index := active_shot
+	var removed: Dictionary = shots[index]
+	removed["working"] = _get_pose()
+	var removed_name := _shot_name(index)
+	shots.remove_at(index)
+	active_shot = maxi(index - 1, 0)
+	_bind_active_shot()
+	_load_shot_scene()
+	# Undo in the shot the student lands on brings the deleted shot back.
+	undo_stack.append({"restore_shot": removed, "index": index})
+	if undo_stack.size() > MAX_UNDO:
+		undo_stack.pop_front()
+	_flash_status("Deleted %s. Press Undo (Ctrl+Z) now if you want it back." % removed_name, 6.0)
+
+
+func _restore_deleted_shot(shot: Dictionary, index: int) -> void:
+	if playing:
+		_stop_playback()
+	shots[active_shot]["working"] = _get_pose()
+	active_shot = clampi(index, 0, shots.size())
+	shots.insert(active_shot, shot)
+	_bind_active_shot()
+	_load_shot_scene()
+	_flash_status("Brought back %s." % _shot_name(active_shot))
+
+
+func _update_shot_title() -> void:
+	if shot_title == null:
+		return
+	var shot_name := "SHOT %d" % (active_shot + 1)
+	shot_title.text = "%s: you're looking through the camera" % shot_name if camera_view \
+		else "%s CAMERA: this is what gets captured" % shot_name
+
+
+## Rebuilds the row of shot cards. Each card shows the shot's first frame, its number,
+## frame count, and label. The last card starts a new shot.
+func _refresh_shot_strip() -> void:
+	if shot_cards == null:
+		return
+	for child in shot_cards.get_children():
+		shot_cards.remove_child(child)
+		child.queue_free()
+	for i in shots.size():
+		var shot: Dictionary = shots[i]
+		var textures: Array[ImageTexture] = shot["textures"]
+		var count := textures.size()
+		var label := str(shot["label"]).strip_edges()
+		var card := _make_shot_card()
+		card.toggle_mode = true
+		card.button_pressed = i == active_shot
+		if count > 0:
+			card.icon = textures[0]
+		var count_text := "no frames yet" if count == 0 else "%d frame%s" % [count, "" if count == 1 else "s"]
+		card.text = "Shot %d · %s\n%s" % [i + 1, count_text, label]
+		card.tooltip_text = "%s: %s. Click to work on this shot." % [_shot_name(i), count_text]
+		card.pressed.connect(_switch_shot.bind(i))
+		shot_cards.add_child(card)
+	var add_card := _make_shot_card()
+	add_card.text = "+ New Shot"
+	add_card.tooltip_text = "Start a new shot: a new camera setup. It picks up exactly where this shot leaves off, so the action can continue across the cut."
+	add_card.disabled = shots.size() >= MAX_SHOTS
+	add_card.pressed.connect(_new_shot)
+	shot_cards.add_child(add_card)
+	_scroll_to_active_card.call_deferred()
+
+
+## Scrolls the strip so the active shot's card is in view. Runs after layout, when the cards have their sizes.
+func _scroll_to_active_card() -> void:
+	if active_shot < shot_cards.get_child_count():
+		shot_scroll.ensure_control_visible(shot_cards.get_child(active_shot) as Control)
+
+
+func _make_shot_card() -> Button:
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.custom_minimum_size = Vector2(136, 104)
+	card.add_theme_font_size_override("font_size", 13)
+	card.expand_icon = true
+	card.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	card.clip_text = true
+	return card
+
+
+## The shot strip along the bottom: the shot controls on top, then a scrolling row of shot cards.
+func _build_shot_strip(parent: Control) -> void:
+	var strip := PanelContainer.new()
+	strip.mouse_filter = Control.MOUSE_FILTER_STOP
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	strip.size_flags_vertical = Control.SIZE_SHRINK_END
+	parent.add_child(strip)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	strip.add_child(box)
+
+	# A flow row, so the controls wrap instead of pushing the shot panel off screen when space is tight.
+	var controls := HFlowContainer.new()
+	controls.add_theme_constant_override("h_separation", 6)
+	controls.add_theme_constant_override("v_separation", 6)
+	box.add_child(controls)
+	var title := Label.new()
+	title.text = "SHOTS"
+	title.add_theme_font_size_override("font_size", 14)
+	title.tooltip_text = "A shot is everything one camera setup records, from the start until the cut. " \
+		+ "Each shot has its own frames and camera. You'll cut your shots together in Premiere."
+	title.mouse_filter = Control.MOUSE_FILTER_STOP
+	controls.add_child(title)
+	shot_label_edit = LineEdit.new()
+	shot_label_edit.placeholder_text = "Label this shot (like CU of Kid's face)"
+	shot_label_edit.max_length = SHOT_LABEL_MAX
+	shot_label_edit.custom_minimum_size = Vector2(250, 0)
+	shot_label_edit.tooltip_text = "A short name for the selected shot, to match your storyboard. Shot sizes are often shortened: WS = wide, MS = medium, CU = close-up."
+	shot_label_edit.text_changed.connect(_on_shot_label_changed)
+	shot_label_edit.text_submitted.connect(func(_text: String) -> void: shot_label_edit.release_focus())
+	controls.add_child(shot_label_edit)
+	_add_button(controls, "Move Earlier", "Move the selected shot one place earlier in the order.", _move_shot.bind(-1))
+	_add_button(controls, "Move Later", "Move the selected shot one place later in the order.", _move_shot.bind(1))
+	_add_button(controls, "Delete Shot", "Delete the selected shot and all its frames. You can undo right after.", _delete_shot_pressed)
+
+	shot_scroll = ScrollContainer.new()
+	shot_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	shot_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	shot_scroll.custom_minimum_size = Vector2(0, 116)
+	box.add_child(shot_scroll)
+	shot_cards = HBoxContainer.new()
+	shot_cards.add_theme_constant_override("separation", 6)
+	shot_scroll.add_child(shot_cards)
 
 
 # ---------------------------------------------------------------- UI
@@ -2506,10 +2808,17 @@ func _build_ui() -> void:
 	status_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	status_panel.visible = false
 	status_row.add_child(status_panel)
+	var status_box := HBoxContainer.new()
+	status_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	status_box.add_theme_constant_override("separation", 10)
+	status_panel.add_child(status_box)
 	status_label = Label.new()
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_label.custom_minimum_size = Vector2(420, 0)
-	status_panel.add_child(status_label)
+	status_box.add_child(status_label)
+	status_action_button = _add_button(status_box, "", "", _on_status_action)
+	status_action_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	status_action_button.visible = false
 
 	# ---- Help panel (hidden until Help is pressed).
 	help_panel = PanelContainer.new()
@@ -2529,7 +2838,9 @@ func _build_ui() -> void:
 		+ "Camera View (C): pose while looking through the shot camera.\n" \
 		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
 		+ "Onion skin (O): see faint ghosts of your last 1 or 3 frames.\n" \
-		+ "Space: capture a frame. P: play your animation. Ctrl+Z: undo.\n" \
+		+ "Space: capture a frame. P: play this shot. Shift+P: play all shots. Ctrl+Z: undo.\n" \
+		+ "Shots (bottom): a shot is one camera setup. + New Shot picks up where this shot left off,\n" \
+		+ "    so you can change the angle and keep the action going. Click a shot to work on it.\n" \
 		+ "Your work autosaves in this browser on this computer. Save Project makes a file you can open anywhere."
 	help_panel.add_child(help_text)
 
@@ -2579,6 +2890,7 @@ func _build_ui() -> void:
 	bottom_row.size_flags_vertical = Control.SIZE_SHRINK_END
 	bottom_margin.add_child(bottom_row)
 
+	_build_shot_strip(bottom_row)
 	_build_export_panel(bottom_row)
 
 	shot_panel = PanelContainer.new()
@@ -2629,8 +2941,9 @@ func _build_ui() -> void:
 
 	var play_row := HBoxContainer.new()
 	shot_box.add_child(play_row)
-	play_button = _add_button(play_row, "Play (P)", "Play your frames as an animation at the frame rate below.", _toggle_playback)
-	_add_button(play_row, "Delete Last Frame", "Remove the most recent frame.", _delete_last_frame)
+	play_button = _add_button(play_row, "Play (P)", "Play this shot's frames as an animation at the frame rate below.", _toggle_playback)
+	play_all_button = _add_button(play_row, "Play All", "Play every shot in order, so you can see how your cuts work. (Shift+P)", _toggle_playback.bind(true))
+	_add_button(play_row, "Delete Last Frame", "Remove this shot's most recent frame.", _delete_last_frame)
 	frames_label = Label.new()
 	frames_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	frames_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -2654,7 +2967,7 @@ func _build_ui() -> void:
 	var rate_spacer := Control.new()
 	rate_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rate_row.add_child(rate_spacer)
-	var export_button := _make_button("Export...", "Download your animation as image files (and more formats soon).")
+	var export_button := _make_button("Export...", "Download your animation: frames for each shot, a Premiere package, a video, or a GIF.")
 	export_button.toggle_mode = true
 	export_button.toggled.connect(func(on: bool) -> void: export_panel.visible = on)
 	rate_row.add_child(export_button)
@@ -2739,6 +3052,12 @@ func _project_data() -> Dictionary:
 				var joint: Node3D = part["joint"]
 				joints.append(rest_pose[joint])
 		rest[figure["id"]] = {"type": figure["type"], "root": rest_pose[root], "joints": joints, "squash": figure["rest_squash"]}
+	var current := _get_pose()
+	var shot_list: Array = []
+	for i in shots.size():
+		var shot: Dictionary = shots[i]
+		shot_list.append({"label": shot["label"], "frames": shot["poses"],
+			"working": current if i == active_shot else shot["working"]})
 	return {
 		"app": APP_NAME,
 		"version": PROJECT_VERSION,
@@ -2747,8 +3066,9 @@ func _project_data() -> Dictionary:
 		"onion": onion_layers,
 		"rest": rest,
 		"camera_default": {"transform": camera_default, "fov": camera_default_fov},
-		"current": _get_pose(),
-		"frames": frame_poses,
+		"current": current,
+		"shots": shot_list,
+		"active_shot": active_shot,
 	}
 
 
@@ -2767,10 +3087,18 @@ func _parse_project(text: String) -> Dictionary:
 	var project: Dictionary = data
 	if project.get("app", "") != APP_NAME:
 		return {"error": "That file isn't a claymation project."}
-	if int(project.get("version", 1)) == 1:
+	var version := int(project.get("version", 1))
+	if version > PROJECT_VERSION:
+		return {"error": "That project was saved by a newer version of the studio. Reload the page (Ctrl+Shift+R or Cmd+Shift+R) and try again."}
+	if version == 1:
 		project = _upgrade_v1_project(project)
 	if project.has("error") or typeof(project.get("rest")) != TYPE_DICTIONARY:
-		return {"error": "That project file is damaged or from a newer version, so it can't be opened here."}
+		return {"error": "That project file is damaged, so it can't be opened here."}
+	# Projects from before shots: all their frames become Shot 1.
+	if not project.has("shots"):
+		project["shots"] = [{"label": "", "frames": project.get("frames", []), "working": {}}]
+	if typeof(project["shots"]) != TYPE_ARRAY:
+		return {"error": "That project file is damaged, so it can't be opened here."}
 	return project
 
 
@@ -2833,14 +3161,36 @@ func _apply_project(project: Dictionary) -> void:
 	export_name.text = str(project.get("name", "my-animation"))
 	_set_fps(int(project.get("fps", DEFAULT_FPS)))
 	_set_onion_layers(int(project.get("onion", 1)))
-	frame_poses.assign(project.get("frames", []))
-	undo_stack.clear()
+	shots.clear()
+	for entry_value in project["shots"]:
+		if typeof(entry_value) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_value
+		var shot := _make_shot(str(entry.get("label", "")).left(SHOT_LABEL_MAX))
+		var poses: Array[Dictionary] = shot["poses"]
+		for pose in entry.get("frames", []):
+			if typeof(pose) == TYPE_DICTIONARY:
+				poses.append(pose)
+		var working: Variant = entry.get("working", {})
+		if typeof(working) == TYPE_DICTIONARY:
+			shot["working"] = working
+		shots.append(shot)
+	if shots.is_empty():
+		shots.append(_make_shot())
+	active_shot = clampi(int(project.get("active_shot", 0)), 0, shots.size() - 1)
+	_bind_active_shot()
 	await _rebuild_frames()
 	var current: Dictionary = project.get("current", {})
+	if current.is_empty():
+		current = shots[active_shot]["working"]
 	if current.is_empty() and not frame_poses.is_empty():
 		current = frame_poses[frame_poses.size() - 1]
 	if not current.is_empty():
 		_apply_pose(current)
+	shots[active_shot]["working"] = {}
+	shot_label_edit.text = str(shots[active_shot]["label"])
+	_update_shot_title()
+	_update_frame_info()
 	loading = false
 	selected_figure = _subject_figure()
 	_clear_stale_selection()
@@ -2865,10 +3215,12 @@ func _clear_scene() -> void:
 	next_number.clear()
 
 
-## Re-renders every frame from its saved pose through the shot camera.
+## Re-renders every frame of every shot from its saved pose through the shot camera.
 func _rebuild_frames() -> void:
-	frame_textures.clear()
-	if frame_poses.is_empty():
+	for shot in shots:
+		(shot["textures"] as Array).clear()
+	var total := _total_frames()
+	if total == 0:
 		_update_frame_info()
 		return
 	busy_overlay.visible = true
@@ -2877,12 +3229,16 @@ func _rebuild_frames() -> void:
 	for key in ghost_pool:
 		(ghost_pool[key]["root"] as Node3D).visible = false
 	shot_camera.cull_mask = SHOT_CAPTURE_MASK
-	var count := frame_poses.size()
-	for i in count:
-		busy_label.text = "Rebuilding your frames: %d of %d" % [i + 1, count]
-		_apply_pose(frame_poses[i])
-		await RenderingServer.frame_post_draw
-		frame_textures.append(ImageTexture.create_from_image(shot_viewport.get_texture().get_image()))
+	var done := 0
+	for shot in shots:
+		var poses: Array[Dictionary] = shot["poses"]
+		var textures: Array[ImageTexture] = shot["textures"]
+		for pose in poses:
+			done += 1
+			busy_label.text = "Rebuilding your frames: %d of %d" % [done, total]
+			_apply_pose(pose)
+			await RenderingServer.frame_post_draw
+			textures.append(ImageTexture.create_from_image(shot_viewport.get_texture().get_image()))
 	shot_camera.cull_mask = SHOT_PREVIEW_MASK
 	capturing = false
 	busy_overlay.visible = false
@@ -2899,9 +3255,12 @@ func _new_project() -> void:
 	shot_camera.global_transform = factory_camera
 	shot_camera.fov = factory_fov
 	_sync_camera()
-	frame_poses.clear()
-	frame_textures.clear()
-	undo_stack.clear()
+	shots.clear()
+	shots.append(_make_shot())
+	active_shot = 0
+	_bind_active_shot()
+	shot_label_edit.text = ""
+	_update_shot_title()
 	export_name.text = "my-animation"
 	_set_fps(DEFAULT_FPS)
 	_set_onion_layers(1)
@@ -2965,12 +3324,19 @@ func _check_autosave() -> void:
 		return
 	var text := FileAccess.get_file_as_string(AUTOSAVE_PATH)
 	var project := _parse_project(text)
-	var frames: Array = project.get("frames", [])
-	if project.has("error") or frames.is_empty():
+	var frame_count := 0
+	var shot_count := 0
+	if not project.has("error"):
+		for entry in project["shots"]:
+			if typeof(entry) == TYPE_DICTIONARY:
+				shot_count += 1
+				frame_count += ((entry as Dictionary).get("frames", []) as Array).size()
+	if frame_count == 0:
 		autosave_enabled = true
 		return
+	var shots_text := "" if shot_count <= 1 else " in %d shots" % shot_count
 	confirm_dialog.title = "Welcome back"
-	confirm_dialog.dialog_text = "You have saved work here: \"%s\" with %d frames.\nPick up where you left off?" % [project.get("name", "my-animation"), frames.size()]
+	confirm_dialog.dialog_text = "You have saved work here: \"%s\" with %d frames%s.\nPick up where you left off?" % [project.get("name", "my-animation"), frame_count, shots_text]
 	confirm_dialog.ok_button_text = "Pick up where I left off"
 	confirm_dialog.cancel_button_text = "Start fresh"
 	pending_confirm = func() -> void:
@@ -3046,7 +3412,7 @@ func _build_export_panel(parent: Control) -> void:
 	for entry in [
 		["png", "Frames: PNG", "Full-quality images, one per frame, in a zip. Best for editing in Premiere.", true],
 		["jpg", "Frames: JPG (saves space)", "Smaller images, one per frame, in a zip. Slightly lower quality.", true],
-		["xml", "Premiere XML + frames (experimental)", "A Premiere Pro sequence with your frames already in order, plus the frames, in one zip. Open it with File > Import in Premiere.", true],
+		["xml", "Premiere XML + frames (experimental)", "For Premiere Pro: each shot as its own clip, plus an empty sequence where you edit them together. Open it with File > Import in Premiere.", true],
 		["mp4", "MP4 video", "A video file at 1280 x 720 that plays anywhere and imports straight into Premiere. Works in the browser version.", true],
 		["gif", "Animated GIF", "A small looping animation (480 x 270) for sharing. Limited colors, so not for editing. Works in the browser version.", true],
 	]:
@@ -3057,8 +3423,28 @@ func _build_export_panel(parent: Control) -> void:
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.disabled = not entry[3]
 		b.button_pressed = key == export_format
-		b.pressed.connect(func() -> void: export_format = key)
+		b.pressed.connect(func() -> void:
+			export_format = key
+			export_scope_row.visible = key == "mp4" or key == "gif")
 		box.add_child(b)
+
+	# Which shots go into an MP4 or GIF. Frames and the Premiere package always include every shot.
+	export_scope_row = HBoxContainer.new()
+	export_scope_row.visible = export_format == "mp4" or export_format == "gif"
+	box.add_child(export_scope_row)
+	var scope_title := Label.new()
+	scope_title.text = "Include:"
+	scope_title.tooltip_text = "All shots plays your whole animation in order, like a rough cut. This shot only is just the shot you're working on."
+	scope_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	export_scope_row.add_child(scope_title)
+	var scope_option := OptionButton.new()
+	scope_option.focus_mode = Control.FOCUS_NONE
+	scope_option.tooltip_text = scope_title.tooltip_text
+	scope_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scope_option.add_item("All shots, in order")
+	scope_option.add_item("This shot only")
+	scope_option.item_selected.connect(func(index: int) -> void: export_scope = "all" if index == 0 else "this")
+	export_scope_row.add_child(scope_option)
 
 	var download := _make_button("DOWNLOAD", "Package your frames and download them.")
 	download.add_theme_font_size_override("font_size", 16)
@@ -3077,27 +3463,47 @@ func _safe_name(raw: String) -> String:
 	return cleaned if cleaned != "" else "my-animation"
 
 
-func _frame_file(index: int, ext: String) -> String:
-	return "shot01_%04d.%s" % [index + 1, ext]
+## Folder for one shot's frames, like "shot02".
+func _shot_folder(shot_index: int) -> String:
+	return "shot%02d" % (shot_index + 1)
+
+
+## File name for one frame, like "shot02_0015.png".
+func _frame_file(shot_index: int, index: int, ext: String) -> String:
+	return "%s_%04d.%s" % [_shot_folder(shot_index), index + 1, ext]
 
 
 func _export() -> void:
 	if exporting:
 		return
-	if frame_textures.is_empty():
+	var total := _total_frames()
+	if total == 0:
 		export_status.text = "Capture some frames first, then export."
+		return
+	var video := export_format == "mp4" or export_format == "gif"
+	if video and export_scope == "this" and frame_textures.is_empty():
+		export_status.text = "Shot %d has no frames yet. Capture some, or choose All shots." % (active_shot + 1)
 		return
 	exporting = true
 	if playing:
 		_stop_playback()
 
 	var base := _safe_name(export_name.text)
-	if export_format == "mp4" or export_format == "gif":
-		await _export_video(export_format, base)
+	if video:
+		var textures: Array[ImageTexture] = []
+		if export_scope == "this":
+			textures.append_array(frame_textures)
+			base += "-shot%02d" % (active_shot + 1)
+		else:
+			for shot in shots:
+				var shot_textures: Array[ImageTexture] = shot["textures"]
+				textures.append_array(shot_textures)
+		await _export_video(export_format, base, textures)
 		exporting = false
 		return
 	var use_jpg := export_format == "jpg"
 	var ext := "jpg" if use_jpg else "png"
+	# Frames: one folder per shot. The Premiere package keeps those folders inside "frames".
 	var frame_dir := base + "/frames/" if export_format == "xml" else base + "/"
 	var zip_path := "user://%s.zip" % base
 	var zip := ZIPPacker.new()
@@ -3106,20 +3512,23 @@ func _export() -> void:
 		exporting = false
 		return
 
-	var count := frame_textures.size()
-	for i in count:
-		var img := frame_textures[i].get_image()
-		var bytes: PackedByteArray = img.save_jpg_to_buffer(0.9) if use_jpg else img.save_png_to_buffer()
-		zip.start_file(frame_dir + _frame_file(i, ext))
-		zip.write_file(bytes)
-		zip.close_file()
-		export_status.text = "Packing frame %d of %d..." % [i + 1, count]
-		# Let the screen update so the app doesn't look frozen during big exports.
-		await get_tree().process_frame
+	var done := 0
+	for s in shots.size():
+		var textures: Array[ImageTexture] = shots[s]["textures"]
+		for i in textures.size():
+			var img := textures[i].get_image()
+			var bytes: PackedByteArray = img.save_jpg_to_buffer(0.9) if use_jpg else img.save_png_to_buffer()
+			zip.start_file("%s%s/%s" % [frame_dir, _shot_folder(s), _frame_file(s, i, ext)])
+			zip.write_file(bytes)
+			zip.close_file()
+			done += 1
+			export_status.text = "Packing frame %d of %d..." % [done, total]
+			# Let the screen update so the app doesn't look frozen during big exports.
+			await get_tree().process_frame
 
 	if export_format == "xml":
 		zip.start_file("%s/%s.xml" % [base, base])
-		zip.write_file(_build_premiere_xml(base, count, ext).to_utf8_buffer())
+		zip.write_file(_build_premiere_xml(base, ext).to_utf8_buffer())
 		zip.close_file()
 		zip.start_file("%s/How to open in Premiere.txt" % base)
 		zip.write_file(_premiere_readme(base).to_utf8_buffer())
@@ -3134,7 +3543,7 @@ func _export() -> void:
 
 ## MP4 and GIF are made by the browser (vcs-export.js), so they only work in the browser version.
 ## Frames go across one at a time so even long animations don't use too much memory.
-func _export_video(kind: String, base: String) -> void:
+func _export_video(kind: String, base: String, textures: Array[ImageTexture]) -> void:
 	if not OS.has_feature("web"):
 		export_status.text = "MP4 and GIF work in the browser version. Use Run in Browser to try them."
 		return
@@ -3145,7 +3554,7 @@ func _export_video(kind: String, base: String) -> void:
 	var api = JavaScriptBridge.get_interface("vcsExport")
 	var w := 1280 if kind == "mp4" else 480
 	var h := 720 if kind == "mp4" else 270
-	var count := frame_textures.size()
+	var count := textures.size()
 
 	export_status.text = "Getting ready..."
 	api.start(kind, w, h, playback_fps, base, js_callback)
@@ -3155,7 +3564,7 @@ func _export_video(kind: String, base: String) -> void:
 		return
 
 	for i in count:
-		var img := frame_textures[i].get_image()
+		var img := textures[i].get_image()
 		if img.get_width() != w or img.get_height() != h:
 			img.resize(w, h, Image.INTERPOLATE_BILINEAR)
 		api.addFrame(Marshalls.raw_to_base64(img.save_jpg_to_buffer(0.92)), js_callback)
@@ -3210,42 +3619,67 @@ func _deliver_file(data: PackedByteArray, file_name: String, mime: String) -> St
 	return "Saved to %s" % path
 
 
-## A Final Cut Pro 7 XML project, which Premiere Pro can import (File > Import).
-## It holds two things: a "Frames" bin with every frame, and the sequence, with each frame
-## as a one-frame clip in order at the chosen frame rate. Keeping the frames in their own bin
-## means the sequence is easy to find instead of being buried among the frames.
-func _build_premiere_xml(base: String, count: int, ext: String) -> String:
+## A Final Cut Pro 7 XML project, which Premiere Pro can import (File > Import). It holds:
+##   - a "Frames" bin with every frame of every shot (each file is described in full here, once),
+##   - a "Shots" bin with one sequence per shot, its frames in order. In Premiere these act like clips:
+##     students drag them into the edit sequence and trim them,
+##   - an empty "<name> - Edit" sequence at the project frame rate, where students cut their shots together.
+## Assembling the shots is left to the student on purpose: putting the edit together is the skill being taught.
+func _build_premiere_xml(base: String, ext: String) -> String:
 	var rate := "<rate><timebase>%d</timebase><ntsc>FALSE</ntsc></rate>" % playback_fps
 	var w := shot_viewport.size.x
 	var h := shot_viewport.size.y
 	var size := "<samplecharacteristics>%s<width>%d</width><height>%d</height><pixelaspectratio>square</pixelaspectratio></samplecharacteristics>" % [rate, w, h]
+	var timecode := "<timecode>%s<string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>" % rate
 	var lines := PackedStringArray()
 	lines.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
 	lines.append("<!DOCTYPE xmeml>")
 	lines.append("<xmeml version=\"4\">")
 	lines.append("<project><name>%s</name><children>" % base.xml_escape())
 
-	# The Frames bin: one master clip per frame. Each file is described in full here, once.
+	# The Frames bin: one master clip per frame.
 	lines.append("<bin><name>Frames</name><children>")
-	for i in count:
-		var file_name := _frame_file(i, ext)
-		lines.append("<clip id=\"masterclip-%d\"><masterclipid>masterclip-%d</masterclipid><ismasterclip>TRUE</ismasterclip><name>%s</name><duration>1</duration>%s" % [i + 1, i + 1, file_name, rate])
-		lines.append("<media><video><track><clipitem id=\"masterclipitem-%d\"><masterclipid>masterclip-%d</masterclipid><name>%s</name>" % [i + 1, i + 1, file_name])
-		lines.append("<file id=\"file-%d\"><name>%s</name><pathurl>frames/%s</pathurl>%s<duration>1</duration><media><video>%s</video></media></file>" % [i + 1, file_name, file_name, rate, size])
-		lines.append("</clipitem></track></video></media></clip>")
+	for s in shots.size():
+		var count := (shots[s]["textures"] as Array).size()
+		for i in count:
+			var id := "%d-%d" % [s + 1, i + 1]
+			var file_name := _frame_file(s, i, ext)
+			lines.append("<clip id=\"masterclip-%s\"><masterclipid>masterclip-%s</masterclipid><ismasterclip>TRUE</ismasterclip><name>%s</name><duration>1</duration>%s" % [id, id, file_name, rate])
+			lines.append("<media><video><track><clipitem id=\"masterclipitem-%s\"><masterclipid>masterclip-%s</masterclipid><name>%s</name>" % [id, id, file_name])
+			lines.append("<file id=\"file-%s\"><name>%s</name><pathurl>frames/%s/%s</pathurl>%s<duration>1</duration><media><video>%s</video></media></file>" % [id, file_name, _shot_folder(s), file_name, rate, size])
+			lines.append("</clipitem></track></video></media></clip>")
 	lines.append("</children></bin>")
 
-	# The sequence: every frame in order, each one frame long, pointing back to its master clip.
-	lines.append("<sequence id=\"sequence-1\">")
-	lines.append("<name>%s</name>" % base.xml_escape())
-	lines.append("<duration>%d</duration>" % count)
+	# The Shots bin: one sequence per shot, every frame in order, each one frame long.
+	lines.append("<bin><name>Shots</name><children>")
+	for s in shots.size():
+		var count := (shots[s]["textures"] as Array).size()
+		if count == 0:
+			continue
+		var shot_name := "Shot %d" % (s + 1)
+		var label := str(shots[s]["label"]).strip_edges()
+		if label != "":
+			shot_name += " - " + label
+		lines.append("<sequence id=\"shot-%d\">" % (s + 1))
+		lines.append("<name>%s</name>" % shot_name.xml_escape())
+		lines.append("<duration>%d</duration>" % count)
+		lines.append(rate)
+		lines.append(timecode)
+		lines.append("<media><video><format>%s</format><track>" % size)
+		for i in count:
+			var id := "%d-%d" % [s + 1, i + 1]
+			lines.append("<clipitem id=\"clipitem-%s\"><masterclipid>masterclip-%s</masterclipid><name>%s</name><enabled>TRUE</enabled><duration>1</duration>%s<start>%d</start><end>%d</end><in>0</in><out>1</out><file id=\"file-%s\"/></clipitem>" % [id, id, _frame_file(s, i, ext), rate, i, i + 1, id])
+		lines.append("</track></video></media>")
+		lines.append("</sequence>")
+	lines.append("</children></bin>")
+
+	# The edit sequence: empty, but already set to the right frame rate and size.
+	lines.append("<sequence id=\"sequence-edit\">")
+	lines.append("<name>%s - Edit</name>" % base.xml_escape())
+	lines.append("<duration>0</duration>")
 	lines.append(rate)
-	lines.append("<timecode>%s<string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>" % rate)
-	lines.append("<media><video><format>%s</format><track>" % size)
-	for i in count:
-		var file_name := _frame_file(i, ext)
-		lines.append("<clipitem id=\"clipitem-%d\"><masterclipid>masterclip-%d</masterclipid><name>%s</name><enabled>TRUE</enabled><duration>1</duration>%s<start>%d</start><end>%d</end><in>0</in><out>1</out><file id=\"file-%d\"/></clipitem>" % [i + 1, i + 1, file_name, rate, i, i + 1, i + 1])
-	lines.append("</track></video></media>")
+	lines.append(timecode)
+	lines.append("<media><video><format>%s</format><track></track></video></media>" % size)
 	lines.append("</sequence>")
 
 	lines.append("</children></project>")
@@ -3257,11 +3691,17 @@ func _premiere_readme(base: String) -> String:
 	return "HOW TO OPEN THIS IN PREMIERE PRO\n\n" \
 		+ "1. Unzip this folder and keep it somewhere it won't get deleted (not just in Downloads).\n" \
 		+ "2. In Premiere Pro, choose File > Import and pick %s.xml.\n" % base \
-		+ "   Premiere makes a new bin. Open it and double-click the sequence named %s\n" % base \
-		+ "   to see your animation on the timeline. Your frames are in the Frames bin.\n" \
-		+ "3. If Premiere says your media is offline or asks you to link media, click Locate,\n" \
-		+ "   open the frames folder, and pick the first frame. Premiere should find the rest.\n" \
-		+ "4. The sequence is %d frames per second, %d x %d pixels.\n" % [playback_fps, shot_viewport.size.x, shot_viewport.size.y]
+		+ "   Premiere makes a new bin. Inside it you'll find:\n" \
+		+ "   - Shots: each of your shots as its own clip (Shot 1, Shot 2, ...).\n" \
+		+ "   - %s - Edit: an empty sequence, already set up for your animation.\n" % base \
+		+ "   - Frames: every single frame. You won't need to touch these.\n" \
+		+ "3. Double-click %s - Edit to open it. Drag your shots from the Shots bin onto the\n" % base \
+		+ "   timeline in the order you want, then trim the start and end of each shot to choose\n" \
+		+ "   exactly where each cut happens. Add your sound here too.\n" \
+		+ "4. If Premiere says your media is offline or asks you to link media, click Locate,\n" \
+		+ "   open the frames folder, then the shot's folder, and pick its first frame.\n" \
+		+ "   Premiere should find the rest.\n" \
+		+ "5. Everything is %d frames per second, %d x %d pixels.\n" % [playback_fps, shot_viewport.size.x, shot_viewport.size.y]
 
 
 func _add_group_label(parent: Control, text: String) -> void:

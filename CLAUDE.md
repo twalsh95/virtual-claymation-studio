@@ -59,10 +59,11 @@ Sections are marked with `# ------ name` comment lines:
 - **work view**: the orbiting Studio View camera, plus Camera View (a 16:9 `camera_screen` TextureRect fitted under the toolbar by `_layout_camera_screen`). Picking goes through `_active_cam()` and `_cam_coords()` so it works in both views.
 - **shot camera**: a 1280x720 SubViewport camera on a tripod model. Locked by default; real-term tools; shot size and angle presets (`_frame_shot` frames the selected figure); warns (doesn't block) when moved after frames exist.
 - **input**: posing math. Bend pins the dragged tip to the cursor with a ray-sphere test (`_ray_to_sphere`). Each part stores swing-from-rest plus a separate twist (`_aim_part`), which prevents twist drift; don't replace this with incremental rotations. Picking uses capsules, spheres, and exact ray-box tests (`_pick_part`, `_ray_capsule`, `_ray_box`). Keys: B/T/M/U/Q tools, C view, O onion, V reset view, L lock camera, Space capture, P play, Ctrl/Cmd+Z undo, Delete/Backspace remove, +/- zoom.
-- **frames**: capture, delete last, playback.
+- **frames**: capture, delete last, playback. Play uses `play_list` (this shot, or every shot for Play All / Shift+P).
+- **shots**: `shots` is an array of `{label, poses, textures, undo, working}`; `active_shot` is the index. `_bind_active_shot` points `frame_poses`, `frame_textures`, and `undo_stack` at the active shot's own arrays, so capture, onion skin, and undo need no shot logic. `working` is the scene as the student left the shot. `_new_shot` inserts after the active shot and keeps the current scene; `_switch_shot`, `_move_shot`, `_delete_shot` (pushes a `restore_shot` step onto the landing shot's undo), `_refresh_shot_strip` (cards rebuilt on every frame change).
 - **UI**: all built in code in `_build_ui`. Toolbar (two rows) in a top-left column with the status toast and the Help, Scene List, and Style panels. The shot panel (preview, Capture, Play, frame rate, Export, onion skin) is bottom-right in its own full-screen MarginContainer, so side panels can't push it off-screen. `_fit_shot_preview` shrinks the preview on short screens.
-- **projects and autosave**: project format v2 (`JSON.from_native`/`to_native`), with an upgrade path from v1. `.clay` files via a hidden file input (`js_open_callback`). Autosave every 5 s to `user://autosave.claymation`; a welcome-back prompt on start. Frames are stored as poses and re-rendered on load.
-- **export**: zip of PNG/JPG frames (ZIPPacker); a Premiere package (FCP7 xmeml v4 with a Frames bin plus the sequence, frames, and a readme); MP4 and GIF through `JavaScriptBridge` and `window.vcsExport` in `web/vcs-export.js` (frames sent one at a time as base64 JPG, with `js_replied` callbacks). Browser downloads use `JavaScriptBridge.download_buffer`; in the editor, files go to Downloads.
+- **projects and autosave**: project format v3 (`JSON.from_native`/`to_native`): `shots: [{label, frames, working}]` plus `active_shot`. v1 and v2 files upgrade to a single Shot 1; files from a newer version are refused with a reload hint. `.clay` files via a hidden file input (`js_open_callback`). Autosave every 5 s to `user://autosave.claymation`; a welcome-back prompt on start. Frames are stored as poses and re-rendered on load.
+- **export**: zip of PNG/JPG frames, one `shotNN/` folder per shot (ZIPPacker); a Premiere package (FCP7 xmeml v4: a Frames bin, a Shots bin with one sequence per shot, and an empty "<name> - Edit" sequence, plus the frames and a readme); MP4/GIF of all shots or this shot (`export_scope`); MP4 and GIF through `JavaScriptBridge` and `window.vcsExport` in `web/vcs-export.js` (frames sent one at a time as base64 JPG, with `js_replied` callbacks). Browser downloads use `JavaScriptBridge.download_buffer`; in the editor, files go to Downloads.
 
 ## Known gotchas
 
@@ -73,7 +74,7 @@ Sections are marked with `# ------ name` comment lines:
 
 ## What's next
 
-1. **Multiple shots.** The next major feature. Designed Nov 12: see "Multiple shots design" in the design document. Build from that; record any changes there.
+1. **Multiple shots.** Built Nov 12 (see "Multiple shots design" in the design document); in testing. The new Premiere package (Shots bin, empty Edit sequence) still needs a test in Premiere. Then the memory test: a few hundred frames on a class MacBook.
 2. Lighting with Lock Lighting.
 3. Backdrops: presets, Make a Backdrop from students' own images, green screen.
 4. Button and keyboard posing in small steps (accessibility).

@@ -85,7 +85,7 @@ Decided after the first tech test (Oct 27). The tech test ran with no errors at 
 | Saving projects | Frames are saved as poses, not pictures, and re-rendered when a project opens, so project files are tiny. Autosave to the browser every 5 seconds with a Welcome Back prompt (survives refreshes on the same MacBook, since students sign in with their own Google ID); New, Save, and Open Project buttons with a project file (.clay) for moving between computers. Cloud saves come later, after the data review | In testing |
 | Characters and props | The scene holds any number of characters and props, added from Add Character (Kid, Man, Woman, Dog, Cat) and Add Prop (Ball, Box, Goal, Floor Marker, Table, Chair, Cone, Can, Plank, Rock) menus, with Remove (undoable) and a Scene List. Tools: Bend, Twist, Move, plus Lift (raise anything off the table, for jumps and bounces) and Squash (volume-preserving squash and stretch on props). Undo, onion skin, frames, and saved projects track every object; older one-puppet project files still open | In testing |
 | Walsh Classroom bar | The shared Walsh Classroom bar (logo, app name, Help, All apps) runs across the top; the studio fills the space under it. The shot preview shrinks on short screens so the shot panel always fits | Live (Nov 12) |
-| Multiple shots | Designed Nov 12; see "Multiple shots design" below | Next: build |
+| Multiple shots | Built Nov 12 as designed below: shot strip, New Shot, switching, labels, Move Earlier/Later, Delete Shot (undoable), Play All (Shift+P), Start New Shot button on the camera warning, project format v3 (older files open as Shot 1), frames exported one folder per shot, Premiere package with a Shots bin (one sequence per shot) and an empty Edit sequence, MP4/GIF All shots or This shot. The Premiere package changes are untested in Premiere | In testing |
 
 ### Multiple shots design
 
@@ -101,7 +101,7 @@ Decided Nov 12, 2026, before building.
 | Telling shots apart | A strip of shot cards along the bottom: thumbnail, number (Shot 1, Shot 2), optional label (e.g. "CU of Kid's face"), frame count, and a + New Shot card. Rename, reorder, delete (confirms, undoable) | Looks like their storyboard from pre-production; the frame timeline (scrub, replace) can grow from it later |
 | Shared across shots | Characters and props in the scene, frame rate, and later lighting (Lock Lighting) | Premiere needs one frame rate per sequence; consistent lighting is the app's job |
 | Frames export | One folder of numbered frames per shot | Matches "one image sequence per shot" |
-| Premiere package | Each shot as its own clip in a Shots bin, plus an empty sequence set to the project frame rate | Students assemble, order, and trim the edit themselves, which is the skill being taught |
+| Premiere package | Each shot as its own clip in a Shots bin, plus an empty sequence set to the project frame rate. Built as one short sequence per shot (Premiere treats a sequence dragged into another like a clip), since the XML format can't describe an image sequence as a single clip | Students assemble, order, and trim the edit themselves, which is the skill being taught |
 | MP4 and GIF | A menu: All shots in order (default, a rough cut for screening) or This shot only | Quick sharing without making it the editing path |
 | Older project files | Open as a single Shot 1 | No lost work |
 
