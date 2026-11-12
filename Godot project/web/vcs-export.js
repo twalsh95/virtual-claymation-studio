@@ -185,7 +185,8 @@ ${r.notes??""}`,d=this.createInternalChunk(c,r.timestamp,r.duration,"key",l.trim
 Mediabunny was loaded twice. This will likely cause Mediabunny not to work correctly. Check if multiple dependencies are importing different versions of Mediabunny, or if something is being bundled incorrectly.`);globalThis[ms]=!0;var yt=Os(vs(),1);return Vs(Sc);})();
 
 /* ---------------------------------------------------------------------------
- * Virtual Claymation Studio: browser video export.
+ * Virtual Claymation Studio: browser export (video, GIF, and frame zips).
+ * Frame zips: see zipStart/zipAdd/zipFinish below.
  * Godot sends frames one at a time (as JPG data); this code feeds them to an
  * MP4 encoder (Mediabunny, via the browser's WebCodecs) or a GIF encoder (gifenc),
  * then downloads the finished file. Every step reports back through `cb(message)`:
@@ -203,7 +204,11 @@ window.vcsExport = (function () {
   }
 
   function download(data, name, mime) {
-    const url = URL.createObjectURL(new Blob([data], { type: mime }));
+    downloadBlob(new Blob([data], { type: mime }), name);
+  }
+
+  function downloadBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = name;
@@ -221,6 +226,59 @@ window.vcsExport = (function () {
     return 'error: ' + ((e && e.message) || String(e));
   }
 
+  // Runs fn after Godot's call into this file has returned, then replies "ok" (or fn's
+  // answer, or "error: ..."). Replies must never arrive during the call itself, because
+  // Godot only starts listening for the reply once the call returns.
+  function later(cb, fn) {
+    Promise.resolve().then(fn).then((r) => reply(cb, r || 'ok'), (e) => reply(cb, describe(e)));
+  }
+
+  /* ---- Frame zips ---------------------------------------------------------
+   * Built piece by piece so a long animation never sits in the page's memory all
+   * at once: every 32 MB, the pieces are gathered into a Blob, which browsers can
+   * keep outside the page's memory. Files are stored, not compressed, since PNG
+   * and JPG are already compressed. Standard zip format (no zip64), so one zip
+   * holds up to 4 GB and 65,535 files. */
+  const ZIP_MAX_BYTES = 0xFFFFFFFF;
+  const ZIP_MAX_FILES = 0xFFFF;
+  const ZIP_GATHER_BYTES = 32 * 1024 * 1024;
+  const CRC_TABLE = (function () {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  let zip = null;
+
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function zipPush(z, bytes) {
+    z.pending.push(bytes);
+    z.pendingBytes += bytes.length;
+    z.offset += bytes.length;
+    if (z.pendingBytes >= ZIP_GATHER_BYTES) {
+      z.blobs.push(new Blob(z.pending));
+      z.pending = [];
+      z.pendingBytes = 0;
+    }
+  }
+
+  const ZIP_TOO_BIG = 'this export is too big for one zip file. Try JPG, a smaller size, or exporting fewer frames.';
+
   return {
     start: function (kind, width, height, fps, name, cb) {
       job = { kind: kind, width: width, height: height, fps: fps, name: name, index: 0, error: null };
@@ -234,6 +292,9 @@ window.vcsExport = (function () {
           j.ext = 'mp4';
           j.mime = 'video/mp4';
           if (!(await L.canEncodeVideo('avc', { width: width, height: height }))) {
+            if (width > 1920) {
+              throw new Error("this computer can't make 4K video. Choose 1080p and try again.");
+            }
             if (await L.canEncodeVideo('vp9', { width: width, height: height })) {
               codec = 'vp9';
               format = new L.WebMOutputFormat();
@@ -291,6 +352,92 @@ window.vcsExport = (function () {
         download(data, file, j.mime);
         return file;
       }).then((file) => reply(cb, 'done: ' + file), (e) => reply(cb, describe(e)));
+    },
+
+    // Frame zips: zipStart, then zipAdd for each file, then zipFinish (downloads it).
+    // zipCancel drops a zip that won't be finished.
+    zipStart: function (name, cb) {
+      const now = new Date();
+      zip = {
+        name: name, blobs: [], pending: [], pendingBytes: 0, offset: 0, entries: [],
+        time: ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF,
+        date: (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF,
+      };
+      later(cb, () => 'ok');
+    },
+
+    zipAdd: function (path, b64, cb) {
+      const z = zip;
+      later(cb, () => {
+        if (!z || z !== zip) throw new Error('the zip was not started.');
+        const data = base64ToBytes(b64);
+        const name = new TextEncoder().encode(path);
+        if (z.entries.length >= ZIP_MAX_FILES) throw new Error(ZIP_TOO_BIG);
+        if (z.offset + 30 + name.length + data.length > ZIP_MAX_BYTES) throw new Error(ZIP_TOO_BIG);
+        const crc = crc32(data);
+        // Local file header (30 bytes), then the name, then the file itself.
+        const h = new DataView(new ArrayBuffer(30));
+        h.setUint32(0, 0x04034b50, true);
+        h.setUint16(4, 20, true);          // version needed
+        h.setUint16(6, 0x0800, true);      // names are UTF-8
+        h.setUint16(8, 0, true);           // stored, not compressed
+        h.setUint16(10, z.time, true);
+        h.setUint16(12, z.date, true);
+        h.setUint32(14, crc, true);
+        h.setUint32(18, data.length, true);
+        h.setUint32(22, data.length, true);
+        h.setUint16(26, name.length, true);
+        h.setUint16(28, 0, true);
+        z.entries.push({ name: name, crc: crc, size: data.length, offset: z.offset });
+        zipPush(z, new Uint8Array(h.buffer));
+        zipPush(z, name);
+        zipPush(z, data);
+      });
+    },
+
+    zipFinish: function (cb) {
+      const z = zip;
+      later(cb, () => {
+        if (!z || z !== zip) throw new Error('the zip was not started.');
+        const start = z.offset;
+        // Central directory: one 46-byte record per file, then its name.
+        for (const e of z.entries) {
+          const c = new DataView(new ArrayBuffer(46));
+          c.setUint32(0, 0x02014b50, true);
+          c.setUint16(4, 20, true);        // version made by
+          c.setUint16(6, 20, true);        // version needed
+          c.setUint16(8, 0x0800, true);
+          c.setUint16(10, 0, true);
+          c.setUint16(12, z.time, true);
+          c.setUint16(14, z.date, true);
+          c.setUint32(16, e.crc, true);
+          c.setUint32(20, e.size, true);
+          c.setUint32(24, e.size, true);
+          c.setUint16(28, e.name.length, true);
+          // Extra field, comment, disk number, and file attributes are all 0.
+          c.setUint32(42, e.offset, true);
+          zipPush(z, new Uint8Array(c.buffer));
+          zipPush(z, e.name);
+        }
+        const size = z.offset - start;
+        if (z.offset + 22 > ZIP_MAX_BYTES) throw new Error(ZIP_TOO_BIG);
+        // End of central directory record.
+        const end = new DataView(new ArrayBuffer(22));
+        end.setUint32(0, 0x06054b50, true);
+        end.setUint16(8, z.entries.length, true);
+        end.setUint16(10, z.entries.length, true);
+        end.setUint32(12, size, true);
+        end.setUint32(16, start, true);
+        zipPush(z, new Uint8Array(end.buffer));
+        const blob = new Blob(z.blobs.concat(z.pending), { type: 'application/zip' });
+        zip = null;
+        downloadBlob(blob, z.name);
+        return 'done: ' + z.name;
+      });
+    },
+
+    zipCancel: function () {
+      zip = null;
     },
 
     // Opens the browser's file picker for a saved project and sends back

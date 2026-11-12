@@ -34,6 +34,18 @@ const CAMERA_PICK_RADIUS := 0.22
 const LIFT_SPEED := 0.004
 const SQUASH_SPEED := 0.008
 const MAX_SHOTS := 30
+# The shot camera's live picture. Captured frames are kept in memory at FRAME_KEEP_SIZE (what the
+# preview, playback, and shot cards show) and re-rendered at the chosen size when exporting.
+const SHOT_RENDER_SIZE := Vector2i(1280, 720)
+const FRAME_KEEP_SIZE := Vector2i(480, 270)
+# Export sizes: [key, menu name, size, tooltip]. 4K is offered for MP4 only (frame zips would be gigabytes).
+const EXPORT_SIZES := [
+	["small", "Small (480 x 270)", Vector2i(480, 270), "Tiny and instant. Good for checking your work, too small for a final project."],
+	["720", "720p HD (1280 x 720)", Vector2i(1280, 720), "Standard HD. A good size for class projects."],
+	["1080", "1080p Full HD (1920 x 1080)", Vector2i(1920, 1080), "Sharper, the most common video size. Takes longer and makes bigger files."],
+	["4k", "4K (3840 x 2160)", Vector2i(3840, 2160), "Very sharp and very big. MP4 only, and only on computers that can make 4K video."],
+]
+const DEFAULT_EXPORT_SIZE := "720"
 const SHOT_LABEL_MAX := 40
 
 # What students can add to the scene.
@@ -203,6 +215,13 @@ var export_status: Label
 var export_format := "png"
 var export_scope := "all"           # MP4 and GIF: "all" shots in order, or "this" shot only.
 var export_scope_row: HBoxContainer
+var export_size := DEFAULT_EXPORT_SIZE
+var export_size_row: HBoxContainer
+var export_size_option: OptionButton
+var export_size_keys: Array[String] = []   # Which size each menu item is, for the current format.
+var render_restore: Dictionary = {}        # The scene to put back after exporting re-renders frames.
+var zip_packer: ZIPPacker                  # Frame zips when running in the editor (the browser builds its own).
+var zip_path := ""
 var exporting := false
 var js_ready := false
 var js_callback: JavaScriptObject   # Kept alive so the browser can keep calling back into Godot.
@@ -1395,7 +1414,7 @@ func _toggle_view() -> void:
 
 func _build_shot_camera() -> void:
 	shot_viewport = SubViewport.new()
-	shot_viewport.size = Vector2i(1280, 720)  # Frames are captured at 720p.
+	shot_viewport.size = SHOT_RENDER_SIZE
 	shot_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	shot_viewport.msaa_3d = Viewport.MSAA_2X
 	add_child(shot_viewport)
@@ -1638,6 +1657,9 @@ func _set_camera_glow(on: bool) -> void:
 # ---------------------------------------------------------------- input
 
 func _unhandled_input(event: InputEvent) -> void:
+	# While a project loads or an export makes fresh frames, the scene isn't the student's to change.
+	if busy_overlay != null and busy_overlay.visible:
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -2148,7 +2170,7 @@ func _capture_frame() -> void:
 	_set_highlight({})
 	shot_camera.cull_mask = SHOT_CAPTURE_MASK
 	await RenderingServer.frame_post_draw
-	var img := shot_viewport.get_texture().get_image()
+	var img := _keep_size(shot_viewport.get_texture().get_image())
 	shot_camera.cull_mask = SHOT_PREVIEW_MASK
 	capturing = false
 	var restore: Dictionary = active_part if not active_part.is_empty() else hovered
@@ -2161,6 +2183,13 @@ func _capture_frame() -> void:
 	flash_rect.color = Color(1, 1, 1, 0.8)
 	var tween := create_tween()
 	tween.tween_property(flash_rect, "color:a", 0.0, 0.25)
+
+
+## Shrinks a captured picture to the size kept in memory. Full-size pictures are made fresh at export.
+func _keep_size(img: Image) -> Image:
+	if img != null and img.get_size() != FRAME_KEEP_SIZE:
+		img.resize(FRAME_KEEP_SIZE.x, FRAME_KEEP_SIZE.y, Image.INTERPOLATE_CUBIC)
+	return img
 
 
 func _delete_last_frame() -> void:
@@ -3238,7 +3267,7 @@ func _rebuild_frames() -> void:
 			busy_label.text = "Rebuilding your frames: %d of %d" % [done, total]
 			_apply_pose(pose)
 			await RenderingServer.frame_post_draw
-			textures.append(ImageTexture.create_from_image(shot_viewport.get_texture().get_image()))
+			textures.append(ImageTexture.create_from_image(_keep_size(shot_viewport.get_texture().get_image())))
 	shot_camera.cull_mask = SHOT_PREVIEW_MASK
 	capturing = false
 	busy_overlay.visible = false
@@ -3410,10 +3439,10 @@ func _build_export_panel(parent: Control) -> void:
 	box.add_child(format_title)
 	var group := ButtonGroup.new()
 	for entry in [
-		["png", "Frames: PNG", "Full-quality images, one per frame, in a zip. Best for editing in Premiere.", true],
-		["jpg", "Frames: JPG (saves space)", "Smaller images, one per frame, in a zip. Slightly lower quality.", true],
+		["png", "Frames: PNG", "Full-quality images, one per frame, in a folder for each shot, in a zip. Best for editing in Premiere.", true],
+		["jpg", "Frames: JPG (saves space)", "Smaller images, one per frame, in a folder for each shot, in a zip. Slightly lower quality.", true],
 		["xml", "Premiere XML + frames (experimental)", "For Premiere Pro: each shot as its own clip, plus an empty sequence where you edit them together. Open it with File > Import in Premiere.", true],
-		["mp4", "MP4 video", "A video file at 1280 x 720 that plays anywhere and imports straight into Premiere. Works in the browser version.", true],
+		["mp4", "MP4 video", "A video file that plays anywhere and imports straight into Premiere. Works in the browser version.", true],
 		["gif", "Animated GIF", "A small looping animation (480 x 270) for sharing. Limited colors, so not for editing. Works in the browser version.", true],
 	]:
 		var key: String = entry[0]
@@ -3425,12 +3454,27 @@ func _build_export_panel(parent: Control) -> void:
 		b.button_pressed = key == export_format
 		b.pressed.connect(func() -> void:
 			export_format = key
-			export_scope_row.visible = key == "mp4" or key == "gif")
+			_update_export_options())
 		box.add_child(b)
+
+	# Resolution. GIFs are always 480 x 270, so the menu hides for them.
+	export_size_row = HBoxContainer.new()
+	box.add_child(export_size_row)
+	var size_title := Label.new()
+	size_title.text = "Size:"
+	size_title.tooltip_text = "Resolution: how many pixels wide and tall your export is. More pixels look sharper " \
+		+ "but take longer to export and make bigger files. Your frames are made fresh at this size, so bigger really is sharper."
+	size_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	export_size_row.add_child(size_title)
+	export_size_option = OptionButton.new()
+	export_size_option.focus_mode = Control.FOCUS_NONE
+	export_size_option.tooltip_text = size_title.tooltip_text
+	export_size_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	export_size_option.item_selected.connect(func(index: int) -> void: export_size = export_size_keys[index])
+	export_size_row.add_child(export_size_option)
 
 	# Which shots go into an MP4 or GIF. Frames and the Premiere package always include every shot.
 	export_scope_row = HBoxContainer.new()
-	export_scope_row.visible = export_format == "mp4" or export_format == "gif"
 	box.add_child(export_scope_row)
 	var scope_title := Label.new()
 	scope_title.text = "Include:"
@@ -3446,7 +3490,7 @@ func _build_export_panel(parent: Control) -> void:
 	scope_option.item_selected.connect(func(index: int) -> void: export_scope = "all" if index == 0 else "this")
 	export_scope_row.add_child(scope_option)
 
-	var download := _make_button("DOWNLOAD", "Package your frames and download them.")
+	var download := _make_button("DOWNLOAD", "Package your animation and download it.")
 	download.add_theme_font_size_override("font_size", 16)
 	download.pressed.connect(_export)
 	box.add_child(download)
@@ -3455,6 +3499,35 @@ func _build_export_panel(parent: Control) -> void:
 	export_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	export_status.custom_minimum_size = Vector2(300, 0)
 	box.add_child(export_status)
+	_update_export_options()
+
+
+## Shows the menus that fit the chosen format: Size (not for GIF; 4K only for MP4) and Include (MP4 and GIF).
+func _update_export_options() -> void:
+	export_scope_row.visible = export_format == "mp4" or export_format == "gif"
+	export_size_row.visible = export_format != "gif"
+	export_size_option.clear()
+	export_size_keys.clear()
+	for entry in EXPORT_SIZES:
+		var key: String = entry[0]
+		if key == "4k" and export_format != "mp4":
+			continue
+		export_size_keys.append(key)
+		export_size_option.add_item(entry[1])
+		export_size_option.set_item_tooltip(export_size_keys.size() - 1, entry[3])
+	if not export_size_keys.has(export_size):
+		export_size = DEFAULT_EXPORT_SIZE
+	export_size_option.select(export_size_keys.find(export_size))
+
+
+## The pixel size this export will be.
+func _export_pixels() -> Vector2i:
+	if export_format == "gif":
+		return FRAME_KEEP_SIZE
+	for entry in EXPORT_SIZES:
+		if entry[0] == export_size:
+			return entry[2]
+	return SHOT_RENDER_SIZE
 
 
 ## Turns whatever the student typed into a safe file name.
@@ -3473,117 +3546,233 @@ func _frame_file(shot_index: int, index: int, ext: String) -> String:
 	return "%s_%04d.%s" % [_shot_folder(shot_index), index + 1, ext]
 
 
+## Every frame going into this export, in order, as (shot, frame) pairs.
+func _export_frame_list(only_active: bool) -> Array[Vector2i]:
+	var list: Array[Vector2i] = []
+	for s in shots.size():
+		if only_active and s != active_shot:
+			continue
+		for i in (shots[s]["poses"] as Array).size():
+			list.append(Vector2i(s, i))
+	return list
+
+
 func _export() -> void:
 	if exporting:
 		return
-	var total := _total_frames()
-	if total == 0:
+	if _total_frames() == 0:
 		export_status.text = "Capture some frames first, then export."
 		return
 	var video := export_format == "mp4" or export_format == "gif"
-	if video and export_scope == "this" and frame_textures.is_empty():
+	var only_active := video and export_scope == "this"
+	if only_active and frame_poses.is_empty():
 		export_status.text = "Shot %d has no frames yet. Capture some, or choose All shots." % (active_shot + 1)
+		return
+	var web := OS.has_feature("web")
+	if video and not web:
+		export_status.text = "MP4 and GIF work in the browser version. Use Run in Browser to try them."
+		return
+	if web and not _load_export_tools():
+		export_status.text = "Couldn't load the export tools. Try reloading the page."
 		return
 	exporting = true
 	if playing:
 		_stop_playback()
 
+	var pixels := _export_pixels()
+	var frames := _export_frame_list(only_active)
 	var base := _safe_name(export_name.text)
+	if only_active:
+		base += "-shot%02d" % (active_shot + 1)
+	# Small exports use the pictures already in memory. Bigger ones make each frame fresh from its pose.
+	var render := pixels != FRAME_KEEP_SIZE
+	if render:
+		_begin_render(pixels)
+		await RenderingServer.frame_post_draw
+	var message: String
 	if video:
-		var textures: Array[ImageTexture] = []
-		if export_scope == "this":
-			textures.append_array(frame_textures)
-			base += "-shot%02d" % (active_shot + 1)
-		else:
-			for shot in shots:
-				var shot_textures: Array[ImageTexture] = shot["textures"]
-				textures.append_array(shot_textures)
-		await _export_video(export_format, base, textures)
-		exporting = false
-		return
+		message = await _export_video(export_format, base, frames, pixels)
+	else:
+		message = await _export_zip(base, frames, pixels)
+	if render:
+		_end_render()
+	export_status.text = message
+	exporting = false
+
+
+func _export_progress(text: String) -> void:
+	export_status.text = text
+	busy_label.text = text
+
+
+## Before making fresh pictures for an export: remembers the scene, hides the onion skin and hover glow,
+## covers the screen (the scene jumps from frame to frame while this runs), and sets the picture size.
+func _begin_render(pixels: Vector2i) -> void:
+	render_restore = _get_pose()
+	capturing = true
+	loading = true   # Skips scene list updates while each frame is set up.
+	_set_highlight({})
+	for key in ghost_pool:
+		(ghost_pool[key]["root"] as Node3D).visible = false
+	shot_camera.cull_mask = SHOT_CAPTURE_MASK
+	shot_viewport.size = pixels
+	busy_label.text = "Getting ready..."
+	busy_overlay.visible = true
+
+
+## Puts everything back the way the student left it.
+func _end_render() -> void:
+	shot_viewport.size = SHOT_RENDER_SIZE
+	shot_camera.cull_mask = SHOT_PREVIEW_MASK
+	loading = false
+	_apply_pose(render_restore)
+	render_restore = {}
+	capturing = false
+	busy_overlay.visible = false
+	_update_ghosts()
+
+
+## One frame's picture at the export size: the picture in memory for Small, otherwise made fresh from its pose.
+func _export_image(shot_index: int, frame_index: int, pixels: Vector2i) -> Image:
+	if pixels == FRAME_KEEP_SIZE:
+		var kept: ImageTexture = shots[shot_index]["textures"][frame_index]
+		return kept.get_image()
+	_apply_pose(shots[shot_index]["poses"][frame_index])
+	await RenderingServer.frame_post_draw
+	return shot_viewport.get_texture().get_image()
+
+
+## Frames (PNG or JPG, a folder per shot) or the Premiere package, as one zip. Returns a message for the student.
+func _export_zip(base: String, frames: Array[Vector2i], pixels: Vector2i) -> String:
 	var use_jpg := export_format == "jpg"
 	var ext := "jpg" if use_jpg else "png"
-	# Frames: one folder per shot. The Premiere package keeps those folders inside "frames".
+	# The Premiere package keeps the shot folders inside "frames".
 	var frame_dir := base + "/frames/" if export_format == "xml" else base + "/"
-	var zip_path := "user://%s.zip" % base
-	var zip := ZIPPacker.new()
-	if zip.open(zip_path) != OK:
-		export_status.text = "Couldn't start the export. Try again."
-		exporting = false
-		return
-
-	var done := 0
-	for s in shots.size():
-		var textures: Array[ImageTexture] = shots[s]["textures"]
-		for i in textures.size():
-			var img := textures[i].get_image()
-			var bytes: PackedByteArray = img.save_jpg_to_buffer(0.9) if use_jpg else img.save_png_to_buffer()
-			zip.start_file("%s%s/%s" % [frame_dir, _shot_folder(s), _frame_file(s, i, ext)])
-			zip.write_file(bytes)
-			zip.close_file()
-			done += 1
-			export_status.text = "Packing frame %d of %d..." % [done, total]
+	var problem: String = await _zip_begin(base + ".zip")
+	if problem != "":
+		return "Couldn't start the export: " + problem
+	for n in frames.size():
+		var f := frames[n]
+		_export_progress("Exporting frame %d of %d..." % [n + 1, frames.size()])
+		var img: Image = await _export_image(f.x, f.y, pixels)
+		if img == null:
+			_zip_cancel()
+			return "Export stopped: couldn't make frame %d." % (n + 1)
+		var bytes: PackedByteArray = img.save_jpg_to_buffer(0.9) if use_jpg else img.save_png_to_buffer()
+		problem = await _zip_add("%s%s/%s" % [frame_dir, _shot_folder(f.x), _frame_file(f.x, f.y, ext)], bytes)
+		if problem != "":
+			_zip_cancel()
+			return "Export stopped: " + problem
+		if pixels == FRAME_KEEP_SIZE:
 			# Let the screen update so the app doesn't look frozen during big exports.
 			await get_tree().process_frame
-
 	if export_format == "xml":
-		zip.start_file("%s/%s.xml" % [base, base])
-		zip.write_file(_build_premiere_xml(base, ext).to_utf8_buffer())
-		zip.close_file()
-		zip.start_file("%s/How to open in Premiere.txt" % base)
-		zip.write_file(_premiere_readme(base).to_utf8_buffer())
-		zip.close_file()
-	zip.close()
+		problem = await _zip_add("%s/%s.xml" % [base, base], _build_premiere_xml(base, ext, pixels).to_utf8_buffer())
+		if problem == "":
+			problem = await _zip_add("%s/How to open in Premiere.txt" % base, _premiere_readme(base, pixels).to_utf8_buffer())
+		if problem != "":
+			_zip_cancel()
+			return "Export stopped: " + problem
+	_export_progress("Finishing up...")
+	return await _zip_end()
 
-	var data := FileAccess.get_file_as_bytes(zip_path)
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(zip_path))
-	export_status.text = _deliver_file(data, base + ".zip", "application/zip")
-	exporting = false
+
+## Zips: in the browser, vcs-export.js builds the zip piece by piece, so a long animation never sits in
+## memory all at once. In the editor, ZIPPacker writes straight into Downloads.
+## _zip_begin and _zip_add return "" when all is well, or what went wrong.
+func _zip_begin(file_name: String) -> String:
+	if OS.has_feature("web"):
+		var api = JavaScriptBridge.get_interface("vcsExport")
+		api.zipStart(file_name, js_callback)
+		await js_replied
+		return _js_problem()
+	zip_path = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS).path_join(file_name)
+	zip_packer = ZIPPacker.new()
+	if zip_packer.open(zip_path) != OK:
+		zip_packer = null
+		return "couldn't save to your Downloads folder."
+	return ""
+
+
+func _zip_add(path: String, bytes: PackedByteArray) -> String:
+	if OS.has_feature("web"):
+		var api = JavaScriptBridge.get_interface("vcsExport")
+		api.zipAdd(path, Marshalls.raw_to_base64(bytes), js_callback)
+		await js_replied
+		return _js_problem()
+	zip_packer.start_file(path)
+	zip_packer.write_file(bytes)
+	zip_packer.close_file()
+	return ""
+
+
+## Finishes the zip and downloads it. Returns a message for the student.
+func _zip_end() -> String:
+	if OS.has_feature("web"):
+		var api = JavaScriptBridge.get_interface("vcsExport")
+		api.zipFinish(js_callback)
+		await js_replied
+		if js_reply.begins_with("done: "):
+			return "Downloaded %s. Check your Downloads folder." % js_reply.trim_prefix("done: ")
+		return "Export stopped: " + _js_problem()
+	zip_packer.close()
+	zip_packer = null
+	OS.shell_show_in_file_manager(zip_path)
+	return "Saved to %s" % zip_path
+
+
+func _zip_cancel() -> void:
+	if OS.has_feature("web"):
+		var api = JavaScriptBridge.get_interface("vcsExport")
+		api.zipCancel()
+		return
+	if zip_packer != null:
+		zip_packer.close()
+		zip_packer = null
+		DirAccess.remove_absolute(zip_path)
+
+
+## What went wrong in the browser's last reply, or "" if nothing did.
+func _js_problem() -> String:
+	return js_reply.trim_prefix("error: ") if js_reply.begins_with("error") else ""
 
 
 ## MP4 and GIF are made by the browser (vcs-export.js), so they only work in the browser version.
 ## Frames go across one at a time so even long animations don't use too much memory.
-func _export_video(kind: String, base: String, textures: Array[ImageTexture]) -> void:
-	if not OS.has_feature("web"):
-		export_status.text = "MP4 and GIF work in the browser version. Use Run in Browser to try them."
-		return
-	if not _load_export_tools():
-		export_status.text = "Couldn't load the video tools. Try reloading the page."
-		return
+## Returns a message for the student.
+func _export_video(kind: String, base: String, frames: Array[Vector2i], pixels: Vector2i) -> String:
 	# Left untyped on purpose: start/addFrame/finish live in the browser, not in Godot.
 	var api = JavaScriptBridge.get_interface("vcsExport")
-	var w := 1280 if kind == "mp4" else 480
-	var h := 720 if kind == "mp4" else 270
-	var count := textures.size()
-
-	export_status.text = "Getting ready..."
-	api.start(kind, w, h, playback_fps, base, js_callback)
+	_export_progress("Getting ready...")
+	api.start(kind, pixels.x, pixels.y, playback_fps, base, js_callback)
 	await js_replied
 	if js_reply.begins_with("error"):
-		export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
-		return
+		return "Export stopped: " + _js_problem()
 
-	for i in count:
-		var img := textures[i].get_image()
-		if img.get_width() != w or img.get_height() != h:
-			img.resize(w, h, Image.INTERPOLATE_BILINEAR)
+	for n in frames.size():
+		var f := frames[n]
+		_export_progress("Making your %s: frame %d of %d..." % [kind.to_upper(), n + 1, frames.size()])
+		var img: Image = await _export_image(f.x, f.y, pixels)
+		if img == null:
+			return "Export stopped: couldn't make frame %d." % (n + 1)
+		if img.get_size() != pixels:
+			img.resize(pixels.x, pixels.y, Image.INTERPOLATE_CUBIC)
 		api.addFrame(Marshalls.raw_to_base64(img.save_jpg_to_buffer(0.92)), js_callback)
 		await js_replied
 		if js_reply.begins_with("error"):
-			export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
-			return
-		export_status.text = "Making your %s: frame %d of %d..." % [kind.to_upper(), i + 1, count]
+			return "Export stopped: " + _js_problem()
+		if pixels == FRAME_KEEP_SIZE:
+			await get_tree().process_frame
 
-	export_status.text = "Finishing up..."
+	_export_progress("Finishing up...")
 	api.finish(js_callback)
 	await js_replied
 	if js_reply.begins_with("done: "):
-		export_status.text = "Downloaded %s. Check your Downloads folder." % js_reply.trim_prefix("done: ")
-	else:
-		export_status.text = "Export stopped: " + js_reply.trim_prefix("error: ")
+		return "Downloaded %s. Check your Downloads folder." % js_reply.trim_prefix("done: ")
+	return "Export stopped: " + _js_problem()
 
 
-## Loads the bundled browser code (res://web/vcs-export.js: MP4/GIF export and the file picker)
+## Loads the bundled browser code (res://web/vcs-export.js: MP4/GIF export, frame zips, and the file picker)
 ## into the page the first time it's needed.
 func _load_export_tools() -> bool:
 	if js_ready:
@@ -3625,10 +3814,10 @@ func _deliver_file(data: PackedByteArray, file_name: String, mime: String) -> St
 ##     students drag them into the edit sequence and trim them,
 ##   - an empty "<name> - Edit" sequence at the project frame rate, where students cut their shots together.
 ## Assembling the shots is left to the student on purpose: putting the edit together is the skill being taught.
-func _build_premiere_xml(base: String, ext: String) -> String:
+func _build_premiere_xml(base: String, ext: String, pixels: Vector2i) -> String:
 	var rate := "<rate><timebase>%d</timebase><ntsc>FALSE</ntsc></rate>" % playback_fps
-	var w := shot_viewport.size.x
-	var h := shot_viewport.size.y
+	var w := pixels.x
+	var h := pixels.y
 	var size := "<samplecharacteristics>%s<width>%d</width><height>%d</height><pixelaspectratio>square</pixelaspectratio></samplecharacteristics>" % [rate, w, h]
 	var timecode := "<timecode>%s<string>00:00:00:00</string><frame>0</frame><displayformat>NDF</displayformat></timecode>" % rate
 	var lines := PackedStringArray()
@@ -3687,7 +3876,7 @@ func _build_premiere_xml(base: String, ext: String) -> String:
 	return "\n".join(lines)
 
 
-func _premiere_readme(base: String) -> String:
+func _premiere_readme(base: String, pixels: Vector2i) -> String:
 	return "HOW TO OPEN THIS IN PREMIERE PRO\n\n" \
 		+ "1. Unzip this folder and keep it somewhere it won't get deleted (not just in Downloads).\n" \
 		+ "2. In Premiere Pro, choose File > Import and pick %s.xml.\n" % base \
@@ -3701,7 +3890,7 @@ func _premiere_readme(base: String) -> String:
 		+ "4. If Premiere says your media is offline or asks you to link media, click Locate,\n" \
 		+ "   open the frames folder, then the shot's folder, and pick its first frame.\n" \
 		+ "   Premiere should find the rest.\n" \
-		+ "5. Everything is %d frames per second, %d x %d pixels.\n" % [playback_fps, shot_viewport.size.x, shot_viewport.size.y]
+		+ "5. Everything is %d frames per second, %d x %d pixels.\n" % [playback_fps, pixels.x, pixels.y]
 
 
 func _add_group_label(parent: Control, text: String) -> void:

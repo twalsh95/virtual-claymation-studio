@@ -81,7 +81,7 @@ Decided after the first tech test (Oct 27). The tech test ran with no errors at 
 | Lighting | Fully adjustable lights, with a Lock Lighting option for the scene to keep lighting consistent | Planned |
 | Backdrops | Preset backdrops shown as physical backdrops in the studio, plus a Make a Backdrop option using students' own images | Planned |
 | Green screen | A green backdrop option, included as a utility rather than a taught skill | Planned |
-| Export | Zip of numbered frames (PNG default, JPG to save space) and a Premiere package (Final Cut Pro 7 XML + frames + instructions) are built. PNG frames and the Premiere package were tested in Premiere on Windows (Oct 28): the import creates the sequence plus a Frames bin. The package keeps an "experimental" label until it's tested on a class MacBook. MP4 (H.264, 1280 x 720, made by the browser's video encoder through the bundled Mediabunny library) and animated GIF (480 x 270, gifenc) are built and tested in the browser and Premiere (Oct 29); both work in the browser version only. Libraries are bundled in the app (web/vcs-export.js, licenses in web/LICENSES.txt), so no outside servers are needed. Frame rate menu: 12 fps default, plus 10, 15, 24, 30, 60 (Premiere sequence rates, so every export imports cleanly). Audio left out for now; possible later feature | In testing |
+| Export | Zip of numbered frames (PNG default, JPG to save space) and a Premiere package (Final Cut Pro 7 XML + frames + instructions) are built. PNG frames and the Premiere package were tested in Premiere on Windows (Oct 28): the import creates the sequence plus a Frames bin. The package keeps an "experimental" label until it's tested on a class MacBook. MP4 (H.264, 1280 x 720, made by the browser's video encoder through the bundled Mediabunny library) and animated GIF (480 x 270, gifenc) are built and tested in the browser and Premiere (Oct 29); both work in the browser version only. Libraries are bundled in the app (web/vcs-export.js, licenses in web/LICENSES.txt), so no outside servers are needed. Frame rate menu: 12 fps default, plus 10, 15, 24, 30, 60 (Premiere sequence rates, so every export imports cleanly). Audio left out for now; possible later feature. Nov 12: Size menu (Small, 720p default, 1080p, 4K for MP4 only) and one folder per shot; see "Frame memory and export size" | In testing |
 | Saving projects | Frames are saved as poses, not pictures, and re-rendered when a project opens, so project files are tiny. Autosave to the browser every 5 seconds with a Welcome Back prompt (survives refreshes on the same MacBook, since students sign in with their own Google ID); New, Save, and Open Project buttons with a project file (.clay) for moving between computers. Cloud saves come later, after the data review | In testing |
 | Characters and props | The scene holds any number of characters and props, added from Add Character (Kid, Man, Woman, Dog, Cat) and Add Prop (Ball, Box, Goal, Floor Marker, Table, Chair, Cone, Can, Plank, Rock) menus, with Remove (undoable) and a Scene List. Tools: Bend, Twist, Move, plus Lift (raise anything off the table, for jumps and bounces) and Squash (volume-preserving squash and stretch on props). Undo, onion skin, frames, and saved projects track every object; older one-puppet project files still open | In testing |
 | Walsh Classroom bar | The shared Walsh Classroom bar (logo, app name, Help, All apps) runs across the top; the studio fills the space under it. The shot preview shrinks on short screens so the shot panel always fits | Live (Nov 12) |
@@ -104,6 +104,18 @@ Decided Nov 12, 2026, before building.
 | Premiere package | Each shot as its own clip in a Shots bin, plus an empty sequence set to the project frame rate. Built as one short sequence per shot (Premiere treats a sequence dragged into another like a clip), since the XML format can't describe an image sequence as a single clip | Students assemble, order, and trim the edit themselves, which is the skill being taught |
 | MP4 and GIF | A menu: All shots in order (default, a rough cut for screening) or This shot only | Quick sharing without making it the editing path |
 | Older project files | Open as a single Shot 1 | No lost work |
+
+### Frame memory and export size
+
+Decided and built Nov 12, 2026 (in testing). Assumed (not yet measured) that full-size frame pictures would use too much memory on class MacBooks. The browser zip was tested on its own (opened cleanly with Windows' zip tools, including a 75 MB zip); the full export still needs testing in the browser and Premiere.
+
+| Question | Decision | Why |
+| --- | --- | --- |
+| What the app keeps in memory | Each frame's picture at 480 x 270 (about 0.5 MB instead of 3.7 MB), plus its pose | Students only ever see frames at preview size or smaller. A 360-frame film drops from about 1.3 GB to under 200 MB |
+| Full-size pictures | Made fresh at export: the app sets up each frame's saved pose and takes a new picture at the chosen size, then puts the scene back | Frames are already saved as poses; project files already rebuild this way |
+| Export size menu | Small (480 x 270, instant, uses the stored pictures), 720p (1280 x 720, default), 1080p (1920 x 1080), and 4K (3840 x 2160) for MP4 only. GIF stays 480 x 270 | Teaches resolution as a video term. 4K frame zips would be several gigabytes; MP4 is built one frame at a time. The app checks whether the computer can make 4K video before starting. GIFs only have 256 colors, so bigger isn't better |
+| Frame zips | Built by the browser piece by piece instead of all at once in memory (store-only zip, no compression needed since PNG and JPG are already compressed; no outside library) | The old way held the whole zip in memory twice, which would fail for long films at 1080p |
+| Lighting (later) | Anything that changes the picture must be saved with each frame or held still | Frames are re-rendered at export, so a lighting change after capturing would otherwise change earlier frames |
 
 **To test before building much on top:** every captured frame is held in the browser as a full-size picture (about 3.7 MB). A 30-second film at 12 fps is about 1.3 GB. Check memory on a class MacBook with a few hundred frames. If it's a problem, keep full pictures only for the active shot and small previews for the others (frames are saved as poses, so pictures can be re-rendered).
 
@@ -166,7 +178,7 @@ The unit opens the Videography course in fall 2027: about 15 class days of 50 mi
 | Category | Terms |
 | --- | --- |
 | Stop motion | frame, armature, onion skin, increment, spacing, ease in, ease out, anticipation, hold, squash and stretch |
-| Video basics | frame rate (fps), timing, shot, shot size (wide, medium, close-up), framing, camera angle (high, low, eye level), lens |
+| Video basics | frame rate (fps), timing, shot, shot size (wide, medium, close-up), framing, camera angle (high, low, eye level), lens, resolution (720p, 1080p, 4K) |
 | Lighting | key light, fill light, back light, mood, consistency |
 | Editing | sequence, cut, continuity, import, export |
 | Story | character, problem, action, blocking |
