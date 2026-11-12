@@ -73,7 +73,7 @@ Sections are marked with `# ------ name` comment lines:
 
 ## What's next
 
-1. **Multiple shots.** The next major feature. Design it with Tom first: what a shot means to a student, how frames belong to shots, how shots are told apart, and what the Premiere export looks like with several shots. Record the decisions in the design document before building.
+1. **Multiple shots.** The next major feature. Designed Nov 12: see "Multiple shots design" in the design document. Build from that; record any changes there.
 2. Lighting with Lock Lighting.
 3. Backdrops: presets, Make a Backdrop from students' own images, green screen.
 4. Button and keyboard posing in small steps (accessibility).

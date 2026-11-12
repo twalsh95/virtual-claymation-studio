@@ -85,7 +85,27 @@ Decided after the first tech test (Oct 27). The tech test ran with no errors at 
 | Saving projects | Frames are saved as poses, not pictures, and re-rendered when a project opens, so project files are tiny. Autosave to the browser every 5 seconds with a Welcome Back prompt (survives refreshes on the same MacBook, since students sign in with their own Google ID); New, Save, and Open Project buttons with a project file (.clay) for moving between computers. Cloud saves come later, after the data review | In testing |
 | Characters and props | The scene holds any number of characters and props, added from Add Character (Kid, Man, Woman, Dog, Cat) and Add Prop (Ball, Box, Goal, Floor Marker, Table, Chair, Cone, Can, Plank, Rock) menus, with Remove (undoable) and a Scene List. Tools: Bend, Twist, Move, plus Lift (raise anything off the table, for jumps and bounces) and Squash (volume-preserving squash and stretch on props). Undo, onion skin, frames, and saved projects track every object; older one-puppet project files still open | In testing |
 | Walsh Classroom bar | The shared Walsh Classroom bar (logo, app name, Help, All apps) runs across the top; the studio fills the space under it. The shot preview shrinks on short screens so the shot panel always fits | Live (Nov 12) |
-| Multiple shots | Next major feature. Design not started | Next |
+| Multiple shots | Designed Nov 12; see "Multiple shots design" below | Next: build |
+
+### Multiple shots design
+
+Decided Nov 12, 2026, before building.
+
+**What a shot means to a student:** one camera setup and the frames captured through it ("everything the camera records from one setup until the cut"). Moving the camera inside a shot is still allowed for a deliberate pan or dolly; the camera-moved warning stays and gains a **Start New Shot** button.
+
+| Question | Decision | Why |
+| --- | --- | --- |
+| Where a new shot starts | From the end of the current shot: same poses, props, and camera. The student reframes and keeps animating | Supports matching action across shots (Level 6) with no extra steps. Picking any starting frame (for coverage) is a possible later addition |
+| Active shot | One at a time. Capture adds to it, onion skin shows only its frames, Play plays it. **Play All** plays every shot in order | Students see their cuts before opening Premiere |
+| Switching shots | The scene and camera return to that shot's last frame, so Capture continues it. Unsaved posing in each shot is kept | Switching never loses work |
+| Telling shots apart | A strip of shot cards along the bottom: thumbnail, number (Shot 1, Shot 2), optional label (e.g. "CU of Kid's face"), frame count, and a + New Shot card. Rename, reorder, delete (confirms, undoable) | Looks like their storyboard from pre-production; the frame timeline (scrub, replace) can grow from it later |
+| Shared across shots | Characters and props in the scene, frame rate, and later lighting (Lock Lighting) | Premiere needs one frame rate per sequence; consistent lighting is the app's job |
+| Frames export | One folder of numbered frames per shot | Matches "one image sequence per shot" |
+| Premiere package | Each shot as its own clip in a Shots bin, plus an empty sequence set to the project frame rate | Students assemble, order, and trim the edit themselves, which is the skill being taught |
+| MP4 and GIF | A menu: All shots in order (default, a rough cut for screening) or This shot only | Quick sharing without making it the editing path |
+| Older project files | Open as a single Shot 1 | No lost work |
+
+**To test before building much on top:** every captured frame is held in the browser as a full-size picture (about 3.7 MB). A 30-second film at 12 fps is about 1.3 GB. Check memory on a class MacBook with a few hundred frames. If it's a problem, keep full pictures only for the active shot and small previews for the others (frames are saved as poses, so pictures can be re-rendered).
 
 ## Gamified tutorial
 
