@@ -92,7 +92,26 @@ body {
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
-
+<script src='https://walshclassroom.com/platform/wc.js' defer></script>
+<script>
+// Walsh Classroom bar: keep the studio sized to the space under the bar.
+(function () {
+	function fit() {
+		var c = document.getElementById('canvas');
+		if (c) {
+			var bar = parseFloat(document.documentElement.style.getPropertyValue('--wc-bar-height')) || 0;
+			var dpr = window.devicePixelRatio || 1;
+			var w = window.innerWidth;
+			var h = Math.max(1, window.innerHeight - bar);
+			var pw = Math.floor(w * dpr), ph = Math.floor(h * dpr);
+			if (c.width !== pw || c.height !== ph) { c.width = pw; c.height = ph; }
+			if (c.style.width !== w + 'px' || c.style.height !== h + 'px') { c.style.width = w + 'px'; c.style.height = h + 'px'; }
+		}
+		requestAnimationFrame(fit);
+	}
+	requestAnimationFrame(fit);
+})();
+</script>
 	</head>
 	<body>
 		<canvas id="canvas">
@@ -111,7 +130,7 @@ body {
 
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":374152,"index.wasm":37902138},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":0,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":375064,"index.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 

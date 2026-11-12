@@ -27,6 +27,8 @@ const DEFAULT_PITCH := -0.25
 const DEFAULT_DISTANCE := 4.5
 const WORK_FOV := 50.0
 const SHOT_ASPECT := 16.0 / 9.0
+const PREVIEW_MAX_HEIGHT := 252.0  # shot preview size on roomy screens
+const PREVIEW_MIN_HEIGHT := 126.0  # smallest it shrinks to on short screens
 const MAX_UNDO := 50
 const CAMERA_PICK_RADIUS := 0.22
 const LIFT_SPEED := 0.004
@@ -1330,7 +1332,21 @@ func _layout_camera_screen() -> void:
 
 
 func _on_viewport_resized() -> void:
+	_fit_shot_preview.call_deferred()
 	_layout_camera_screen.call_deferred()
+
+
+## Shrinks the shot preview on short screens (or under the Walsh Classroom bar) so the whole shot panel stays on screen.
+func _fit_shot_preview() -> void:
+	if preview == null:
+		return
+	var vs := get_viewport().get_visible_rect().size
+	var room := vs.y - 10.0 - (toolbar.get_global_rect().end.y + 8.0)
+	var rest := shot_panel.size.y - preview.size.y
+	var h := floorf(clampf(room - rest, PREVIEW_MIN_HEIGHT, PREVIEW_MAX_HEIGHT))
+	var fitted := Vector2(roundf(h * SHOT_ASPECT), h)
+	if fitted != preview.custom_minimum_size:
+		preview.custom_minimum_size = fitted
 
 
 ## The camera the cursor is working through: the shot camera in Camera View, otherwise the work view.
@@ -2549,10 +2565,19 @@ func _build_ui() -> void:
 	column.add_child(spacer)
 
 	# ---- Bottom right: shot camera preview, capture, playback, onion skin.
+	# It has its own layer of the screen, so open side panels (Help, Style, Scene List) can't push it off the bottom.
+	var bottom_margin := MarginContainer.new()
+	bottom_margin.theme = ui_theme
+	bottom_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bottom_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
+		bottom_margin.add_theme_constant_override(side, 10)
+	layer.add_child(bottom_margin)
 	var bottom_row := HBoxContainer.new()
 	bottom_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bottom_row.alignment = BoxContainer.ALIGNMENT_END
-	column.add_child(bottom_row)
+	bottom_row.size_flags_vertical = Control.SIZE_SHRINK_END
+	bottom_margin.add_child(bottom_row)
 
 	_build_export_panel(bottom_row)
 
@@ -2568,7 +2593,7 @@ func _build_ui() -> void:
 	shot_box.add_child(shot_title)
 
 	preview = Control.new()
-	preview.custom_minimum_size = Vector2(448, 252)
+	preview.custom_minimum_size = Vector2(PREVIEW_MAX_HEIGHT * SHOT_ASPECT, PREVIEW_MAX_HEIGHT)
 	shot_box.add_child(preview)
 
 	var live := TextureRect.new()
