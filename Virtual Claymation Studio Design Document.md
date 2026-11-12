@@ -1,8 +1,10 @@
 # Virtual Claymation Studio: Design Document
 
-Last updated: Oct 28, 2026 · Tom Walsh
+Last updated: Nov 12, 2026 · Tom Walsh
 
-Live version: https://claude.ai/artifact/71Rhm3k47PjK2EtJmjt1LB
+**This file is the source of truth for design decisions.** It replaced the claude.ai version on Nov 12, 2026, when the project moved to Claude Code. Record decisions here, and update the status column as features are built and tested. How the code works lives in CLAUDE.md.
+
+Live app: https://walshclassroom.com/virtual-claymation-studio/
 
 ## Project overview
 
@@ -18,15 +20,15 @@ A gamified tutorial teaches stop motion, video vocabulary, framing, basic lighti
 
 | Area | Decision | Notes |
 | --- | --- | --- |
-| Engine | Godot 4, scripted in GDScript | GDScript is the safest choice for web export |
-| Platform | Web-hosted, runs on shared class MacBooks; Chromebooks need the site allowlisted by IT | Uses Godot's lighter Compatibility renderer; verify current web-export details in Godot docs |
-| Hosting | Static hosting, such as GitHub Pages | Recent Godot versions export in a way that hosts there easily (general knowledge, to verify) |
+| Engine | Godot 4 (4.7.2), scripted in GDScript | GDScript is the safest choice for web export |
+| Platform | Web-hosted, runs on shared class MacBooks; Chromebooks need the site allowlisted by IT | Uses Godot's lighter Compatibility renderer; Thread Support off |
+| Hosting | GitHub Pages from the `docs` folder of this repo, served at walshclassroom.com/virtual-claymation-studio/ as part of the Walsh Classroom hub (live Nov 12, 2026) | The repo is public. The Walsh Classroom bar runs across the top of the app |
 | Clay characters | Armature puppets: smooth-blended clay shapes on a simple skeleton, with a clay-look shader | Mirrors real wire armatures; poses save small |
 | Free-form clay | Deferred to a later milestone | Real-time sculpting is the hardest technical piece |
 | Physics | None. Students animate every object, including props | Level checks are end-state conditions |
 | Shots | A project holds multiple shots, each with its own camera setup | Cutting happens in the editor, not in the app |
 | Lighting | Basic, adjustable lights; settings stay consistent automatically | Consistency is handled by the app; basics are taught, not mastered |
-| Saving | Student Google sign-in with cloud saves (Firebase), reusing Narrative Studio's classroom system: join codes, teacher roster, read-only student browsing | Required: MacBooks are shared across classes. A download-project-file button stays as a backup. Godot-to-Firebase connection is part of the first tech test |
+| Saving | Student sign-in with cloud saves, plus a download-project-file backup | Required: MacBooks are shared across classes. Sign-in is moving to the Walsh Classroom platform (one sign-in for every app, on Narrative Studio's Firebase project; see brand/PLATFORM.md in the walshclassroom repo). Waits on the student data review |
 | Export | Numbered image sequence, one per shot | Students import into Premiere on the MacBooks as an image sequence, then set frame rate, cut shots, and add sound (Rush was discontinued in Sept 2026) |
 
 ## Build milestones
@@ -74,12 +76,16 @@ Decided after the first tech test (Oct 27). The tech test ran with no errors at 
 | Undo | Undo for posing changes; Delete Last Frame for captures | In testing |
 | Default pose | Set as Default Pose; Reset Pose returns to it | In testing |
 | Posing without dragging | Button and keyboard posing in fixed small steps (accessibility, reinforces small increments) | Planned |
-| Character colors | Quick color changes for shirt, pants, skin, and shoes | Planned |
+| Character and prop style | Style panel for the selected object: color buttons per part (people: Shirt, Pants, Skin, Hair, Shoes; animals: Fur, Muzzle, Ears; props: Color) with a clay palette including six skin tones, plus hairstyles for people (None, Short, Long, Ponytail, Bun, Curly). Each frame remembers its colors and hair, so restyling mid-shot only affects new frames; Undo covers style changes. Dog and cat bodies are two sections (hips and chest) so the spine can bend | In testing |
 | Moving the shot camera | Locked by default. Camera View tools use real terms (Pan/Tilt, Truck/Pedestal, Dolly, Zoom with a mm lens readout); in Studio View students grab and slide the tripod. Shot size and angle presets, a default camera position, and a warning (not a block) when moved after frames are captured | In testing |
 | Lighting | Fully adjustable lights, with a Lock Lighting option for the scene to keep lighting consistent | Planned |
 | Backdrops | Preset backdrops shown as physical backdrops in the studio, plus a Make a Backdrop option using students' own images | Planned |
 | Green screen | A green backdrop option, included as a utility rather than a taught skill | Planned |
-| Export | Downloadable numbered frames per shot | Planned |
+| Export | Zip of numbered frames (PNG default, JPG to save space) and a Premiere package (Final Cut Pro 7 XML + frames + instructions) are built. PNG frames and the Premiere package were tested in Premiere on Windows (Oct 28): the import creates the sequence plus a Frames bin. The package keeps an "experimental" label until it's tested on a class MacBook. MP4 (H.264, 1280 x 720, made by the browser's video encoder through the bundled Mediabunny library) and animated GIF (480 x 270, gifenc) are built and tested in the browser and Premiere (Oct 29); both work in the browser version only. Libraries are bundled in the app (web/vcs-export.js, licenses in web/LICENSES.txt), so no outside servers are needed. Frame rate menu: 12 fps default, plus 10, 15, 24, 30, 60 (Premiere sequence rates, so every export imports cleanly). Audio left out for now; possible later feature | In testing |
+| Saving projects | Frames are saved as poses, not pictures, and re-rendered when a project opens, so project files are tiny. Autosave to the browser every 5 seconds with a Welcome Back prompt (survives refreshes on the same MacBook, since students sign in with their own Google ID); New, Save, and Open Project buttons with a project file (.clay) for moving between computers. Cloud saves come later, after the data review | In testing |
+| Characters and props | The scene holds any number of characters and props, added from Add Character (Kid, Man, Woman, Dog, Cat) and Add Prop (Ball, Box, Goal, Floor Marker, Table, Chair, Cone, Can, Plank, Rock) menus, with Remove (undoable) and a Scene List. Tools: Bend, Twist, Move, plus Lift (raise anything off the table, for jumps and bounces) and Squash (volume-preserving squash and stretch on props). Undo, onion skin, frames, and saved projects track every object; older one-puppet project files still open | In testing |
+| Walsh Classroom bar | The shared Walsh Classroom bar (logo, app name, Help, All apps) runs across the top; the studio fills the space under it. The shot preview shrinks on short screens so the shot panel always fits | Live (Nov 12) |
+| Multiple shots | Next major feature. Design not started | Next |
 
 ## Gamified tutorial
 
@@ -149,10 +155,11 @@ The unit opens the Videography course in fall 2027: about 15 class days of 50 mi
 
 - [ ] How do students control the studio: mouse and keyboard only, or also touch (Chromebook touchscreens)?
 - [ ] Should the unit run entirely on MacBooks in class, with Chromebooks as a bonus for home work? Animating on Chromebooks and editing on MacBooks adds a file-transfer step.
-- [ ] Data review: Google sign-in works technically, but has an administrator approved storing student data in a teacher-run Firebase project? Default until then: store only the Google account ID, first name, and class code.
-- [ ] Ask IT to allowlist the app's site on Chromebooks (never requested for Narrative Studio)
-- [ ] What frame rate should projects default to (12 fps is common in stop motion)?
+- [ ] Data review: has an administrator approved storing student data for cloud saves? Default until then: store only the account ID, first name, and class code.
+- [ ] Ask IT to allowlist walshclassroom.com on Chromebooks (never requested for Narrative Studio)
+- [x] What frame rate should projects default to? 12 fps, with 10, 15, 24, 30, and 60 in the menu.
 - [ ] How much puppet detail do you want: simple blob figures, or faces with swappable mouths and eyes like real claymation?
 - [ ] Should students see a score or stars per level, or just complete/not yet?
 - [ ] Who playtests in spring, and how is feedback collected?
 - [ ] For the possible game version: what makes it different from the classroom tutorial (story, more levels, sharing)?
+- [ ] Test the Premiere package and the live site on a class MacBook.
