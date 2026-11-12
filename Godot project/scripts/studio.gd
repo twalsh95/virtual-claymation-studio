@@ -2737,7 +2737,7 @@ func _build_ui() -> void:
 	_add_button(flow, "Open Project", "Open a project file you saved earlier.", func() -> void: _confirm("Open a project? Your current animation will be replaced. Save it first if you want to keep it.", _open_project))
 
 	_add_divider(flow)
-	var help_button := _make_button("Help", "Show or hide the list of controls.")
+	var help_button := _make_button("How To", "Show or hide how to use the studio: the tools, shortcut keys, and tips.")
 	help_button.toggle_mode = true
 	help_button.toggled.connect(func(on: bool) -> void: help_panel.visible = on)
 	flow.add_child(help_button)
@@ -2820,7 +2820,7 @@ func _build_ui() -> void:
 	status_action_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	status_action_button.visible = false
 
-	# ---- Help panel (hidden until Help is pressed).
+	# ---- How To panel (hidden until How To is pressed).
 	help_panel = PanelContainer.new()
 	help_panel.visible = false
 	help_panel.mouse_filter = Control.MOUSE_FILTER_STOP
