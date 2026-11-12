@@ -78,14 +78,14 @@ Decided after the first tech test (Oct 27). The tech test ran with no errors at 
 | Posing without dragging | Button and keyboard posing in fixed small steps (accessibility, reinforces small increments) | Planned |
 | Character and prop style | Style panel for the selected object: color buttons per part (people: Shirt, Pants, Skin, Hair, Shoes; animals: Fur, Muzzle, Ears; props: Color) with a clay palette including six skin tones, plus hairstyles for people (None, Short, Long, Ponytail, Bun, Curly). Each frame remembers its colors and hair, so restyling mid-shot only affects new frames; Undo covers style changes. Dog and cat bodies are two sections (hips and chest) so the spine can bend | In testing |
 | Moving the shot camera | Locked by default. Camera View tools use real terms (Pan/Tilt, Truck/Pedestal, Dolly, Zoom with a mm lens readout); in Studio View students grab and slide the tripod. Shot size and angle presets, a default camera position, and a warning (not a block) when moved after frames are captured | In testing |
-| Lighting | Fully adjustable lights, with a Lock Lighting option for the scene to keep lighting consistent | Planned |
+| Lighting | Key, Fill, and Back lamps per shot, mood presets, and Lock Lighting at first capture. Designed Nov 12; see "Lighting design" below | Next: build |
 | Backdrops | Preset backdrops shown as physical backdrops in the studio, plus a Make a Backdrop option using students' own images | Planned |
 | Green screen | A green backdrop option, included as a utility rather than a taught skill | Planned |
 | Export | Zip of numbered frames (PNG default, JPG to save space) and a Premiere package (Final Cut Pro 7 XML + frames + instructions) are built. PNG frames and the Premiere package were tested in Premiere on Windows (Oct 28): the import creates the sequence plus a Frames bin. The package keeps an "experimental" label until it's tested on a class MacBook. MP4 (H.264, 1280 x 720, made by the browser's video encoder through the bundled Mediabunny library) and animated GIF (480 x 270, gifenc) are built and tested in the browser and Premiere (Oct 29); both work in the browser version only. Libraries are bundled in the app (web/vcs-export.js, licenses in web/LICENSES.txt), so no outside servers are needed. Frame rate menu: 12 fps default, plus 10, 15, 24, 30, 60 (Premiere sequence rates, so every export imports cleanly). Audio left out for now; possible later feature. Nov 12: Size menu (Small, 720p default, 1080p, 4K for MP4 only) and one folder per shot; see "Frame memory and export size" | In testing |
 | Saving projects | Frames are saved as poses, not pictures, and re-rendered when a project opens, so project files are tiny. Autosave to the browser every 5 seconds with a Welcome Back prompt (survives refreshes on the same MacBook, since students sign in with their own Google ID); New, Save, and Open Project buttons with a project file (.clay) for moving between computers. Cloud saves come later, after the data review | In testing |
 | Characters and props | The scene holds any number of characters and props, added from Add Character (Kid, Man, Woman, Dog, Cat) and Add Prop (Ball, Box, Goal, Floor Marker, Table, Chair, Cone, Can, Plank, Rock) menus, with Remove (undoable) and a Scene List. Tools: Bend, Twist, Move, plus Lift (raise anything off the table, for jumps and bounces) and Squash (volume-preserving squash and stretch on props). Undo, onion skin, frames, and saved projects track every object; older one-puppet project files still open | In testing |
 | Walsh Classroom bar | The shared Walsh Classroom bar (logo, app name, Help, All apps) runs across the top; the studio fills the space under it. The shot preview shrinks on short screens so the shot panel always fits | Live (Nov 12) |
-| Multiple shots | Built Nov 12 as designed below: shot strip, New Shot, switching, labels, Move Earlier/Later, Delete Shot (undoable), Play All (Shift+P), Start New Shot button on the camera warning, project format v3 (older files open as Shot 1), frames exported one folder per shot, Premiere package with a Shots bin (one sequence per shot) and an empty Edit sequence, MP4/GIF All shots or This shot. The Premiere package changes are untested in Premiere | In testing |
+| Multiple shots | Built Nov 12 as designed below: shot strip, New Shot, switching, labels, Move Earlier/Later, Delete Shot (undoable), Play All (Shift+P), Start New Shot button on the camera warning, project format v3 (older files open as Shot 1), frames exported one folder per shot, Premiere package with a Shots bin (one sequence per shot) and an empty Edit sequence, MP4/GIF All shots or This shot. Nov 12 browser check: exports work and the per-shot folders are right. Still to check: switching between shots in the strip, the Premiere import, and a class MacBook | In testing |
 
 ### Multiple shots design
 
@@ -107,7 +107,7 @@ Decided Nov 12, 2026, before building.
 
 ### Frame memory and export size
 
-Decided and built Nov 12, 2026 (in testing). Assumed (not yet measured) that full-size frame pictures would use too much memory on class MacBooks. The browser zip was tested on its own (opened cleanly with Windows' zip tools, including a 75 MB zip); the full export still needs testing in the browser and Premiere.
+Decided and built Nov 12, 2026 (in testing). Assumed (not yet measured) that full-size frame pictures would use too much memory on class MacBooks. The browser zip was tested on its own (opened cleanly with Windows' zip tools, including a 75 MB zip); Nov 12 browser check: the export sizes work. Still to check: the Premiere import, opening the zip on a Mac, 4K MP4 on a MacBook, and a long project on a class MacBook.
 
 | Question | Decision | Why |
 | --- | --- | --- |
@@ -117,7 +117,26 @@ Decided and built Nov 12, 2026 (in testing). Assumed (not yet measured) that ful
 | Frame zips | Built by the browser piece by piece instead of all at once in memory (store-only zip, no compression needed since PNG and JPG are already compressed; no outside library) | The old way held the whole zip in memory twice, which would fail for long films at 1080p |
 | Lighting (later) | Anything that changes the picture must be saved with each frame or held still | Frames are re-rendered at export, so a lighting change after capturing would otherwise change earlier frames |
 
-**To test before building much on top:** every captured frame is held in the browser as a full-size picture (about 3.7 MB). A 30-second film at 12 fps is about 1.3 GB. Check memory on a class MacBook with a few hundred frames. If it's a problem, keep full pictures only for the active shot and small previews for the others (frames are saved as poses, so pictures can be re-rendered).
+### Lighting design
+
+Decided Nov 12, 2026, before building. Today the set has three fixed lights students can't see or change (a warm shadow-casting key from the front right, a cool fill from the front left, a back light from behind and above) plus a dim room light.
+
+**The big idea:** frames are made fresh at export, so lighting can belong to the shot instead of to each frame. Changing a shot's lighting relights every frame in it together, so lighting flicker can't happen. That's how the app keeps lighting consistent automatically. Lock Lighting then guards against relighting frames by accident.
+
+| Question | Decision | Why |
+| --- | --- | --- |
+| What lighting belongs to | Each shot has its own lighting setup. A new shot copies the current shot's lighting; an "Apply to all shots" button copies it everywhere. Changing a shot's lighting relights all its frames | No flicker. Allows a mood change between scenes (day to night); mismatched lighting between shots becomes a teachable continuity moment |
+| The lights | Three lamps with fixed roles: Key, Fill, and Back. Any can be turned off. Shown as lamps on stands in Studio View (like the tripod; never captured). Only the Key casts shadows; the dim room light stays | Fixed roles teach three-point lighting directly. Fill light is soft in real life, and one shadow keeps the app fast on Chromebooks |
+| Per-light controls | On/off, brightness, color temperature (a warm-to-cool slider: tungsten 3200K to daylight 5600K), and colored gels (such as red, blue, green) | Real terms; color temperature and gels are basics students will meet on real sets |
+| Mood presets | A starting point students then adjust: Three-Point, High-Key (bright, few shadows; comedy), Low-Key (dark, dramatic; noir), Side Light (half the face in shadow; mystery), Under Light (horror), Silhouette (back light only) | The core of Level 5 ("Set the mood"): see a mood, then learn which light makes it |
+| Moving lights | In Studio View, drag a lamp around the table like the tripod; a height slider raises or lowers it. Lamps always aim at the subject | Direction is the biggest part of mood, and placement stays visible and physical |
+| Lock Lighting | Lights are free while setting up a shot and lock when its first frame is captured. Unlocking warns that changes will relight all of the shot's frames | Like a real crew locking down before shooting |
+| Left for later | Lighting changes during a shot (a lamp switching off, a lightning flash) | A good story tool, but it brings back flicker and adds complexity |
+
+**To settle while building:**
+- Where lamps aim. Proposal: an aim point saved with the shot's lighting (default: the middle of the table at chest height), with an "Aim at selected" button. Aim must not follow the selection automatically, or clicking a character would relight the shot.
+- Relighting a shot re-makes its kept pictures, like opening a project (a few seconds for a long shot).
+- Check the frame rate on a MacBook and a Chromebook with three lamps and one shadow.
 
 ## Gamified tutorial
 
@@ -179,7 +198,7 @@ The unit opens the Videography course in fall 2027: about 15 class days of 50 mi
 | --- | --- |
 | Stop motion | frame, armature, onion skin, increment, spacing, ease in, ease out, anticipation, hold, squash and stretch |
 | Video basics | frame rate (fps), timing, shot, shot size (wide, medium, close-up), framing, camera angle (high, low, eye level), lens, resolution (720p, 1080p, 4K) |
-| Lighting | key light, fill light, back light, mood, consistency |
+| Lighting | key light, fill light, back light, three-point lighting, mood, high-key, low-key, silhouette, color temperature, gel, consistency |
 | Editing | sequence, cut, continuity, import, export |
 | Story | character, problem, action, blocking |
 

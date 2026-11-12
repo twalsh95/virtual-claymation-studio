@@ -75,7 +75,7 @@ Sections are marked with `# ------ name` comment lines:
 ## What's next
 
 1. **Multiple shots** and **frame memory / export size** (Nov 12; see the design document): in testing. The new Premiere package still needs a test in Premiere, and a long project (a few hundred frames) still needs a run on a class MacBook.
-2. Lighting with Lock Lighting. Design it with Tom first. Frames are re-rendered at export, so anything that changes the picture must be saved per frame or locked.
+2. **Lighting.** Designed Nov 12: see "Lighting design" in the design document. Build from that; record any changes there.
 3. Backdrops: presets, Make a Backdrop from students' own images, green screen.
 4. Button and keyboard posing in small steps (accessibility).
 5. Tutorial levels.
