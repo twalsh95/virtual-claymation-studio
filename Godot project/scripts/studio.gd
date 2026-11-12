@@ -38,6 +38,16 @@ const PROP_TYPES := {
 	"ball": "Ball", "box": "Box", "goal": "Goal", "marker": "Floor Marker", "table": "Table",
 	"chair": "Chair", "cone": "Cone", "can": "Can", "plank": "Plank", "rock": "Rock",
 }
+const HAIR_STYLES := {"none": "None", "short": "Short", "long": "Long", "ponytail": "Ponytail", "bun": "Bun", "curly": "Curly"}
+# Ready-made clay colors shown first in every color picker, including a range of skin tones.
+const CLAY_PALETTE := [
+	Color(0.86, 0.2, 0.18), Color(0.95, 0.5, 0.15), Color(0.98, 0.82, 0.2), Color(0.6, 0.8, 0.25),
+	Color(0.25, 0.6, 0.32), Color(0.15, 0.6, 0.6), Color(0.45, 0.72, 0.92), Color(0.22, 0.38, 0.75),
+	Color(0.52, 0.3, 0.68), Color(0.95, 0.55, 0.7), Color(0.5, 0.32, 0.18), Color(0.82, 0.68, 0.48),
+	Color(0.95, 0.95, 0.92), Color(0.55, 0.55, 0.55), Color(0.1, 0.1, 0.11),
+	Color(0.98, 0.85, 0.72), Color(0.93, 0.76, 0.58), Color(0.8, 0.6, 0.45), Color(0.62, 0.43, 0.3),
+	Color(0.45, 0.3, 0.2), Color(0.3, 0.2, 0.14),
+]
 # Where new characters and props appear, first free spot wins.
 const SPAWN_SPOTS := [
 	Vector3(0, 0, 0), Vector3(1.0, 0, 0.4), Vector3(-1.0, 0, 0.4), Vector3(1.8, 0, -0.3),
@@ -163,6 +173,9 @@ var onion_buttons: Dictionary = {}
 var selected_label: Label
 var scene_list_panel: PanelContainer
 var scene_list_box: VBoxContainer
+var style_panel: PanelContainer
+var style_box: VBoxContainer
+var style_panel_for := ""           # id of the figure the Style panel is showing.
 
 # Frame rate and export.
 var playback_fps := DEFAULT_FPS
@@ -343,12 +356,13 @@ func _spawn(type: String, id: String = "", where: Variant = null) -> Dictionary:
 		"id": id, "type": type, "kind": "character" if is_character else "prop", "name": label,
 		"root": root, "body": null, "parts": [], "center": Vector3.ZERO, "height": 1.0,
 		"torso": null, "head": null, "head_center": Vector3.ZERO, "squash": 1.0, "rest_squash": 1.0,
+		"slots": {}, "colors": {}, "hair": "",
 	}
 	figures.append(figure)
 
 	match type:
 		"kid":
-			_build_humanoid(figure, 1.0, Color(0.86, 0.42, 0.22), Color(0.24, 0.38, 0.66), Color(0.93, 0.76, 0.58), "", Color.BLACK)
+			_build_humanoid(figure, 1.0, Color(0.86, 0.42, 0.22), Color(0.24, 0.38, 0.66), Color(0.93, 0.76, 0.58), "short", Color(0.3, 0.2, 0.12))
 		"man":
 			_build_humanoid(figure, 1.18, Color(0.25, 0.55, 0.35), Color(0.25, 0.25, 0.3), Color(0.8, 0.6, 0.45), "short", Color(0.25, 0.17, 0.1), 1.12)
 		"woman":
@@ -422,12 +436,15 @@ func _build_humanoid(figure: Dictionary, k: float, shirt: Color, pants: Color, s
 	_add_sphere(head_part, head, Vector3(0, 0.19 * k, 0.2 * k), 0.045 * k, Vector3.ONE, skin)
 	_add_eye(head, Vector3(0.075 * k, 0.25 * k, 0.165 * k), 0.035 * k)
 	_add_eye(head, Vector3(-0.075 * k, 0.25 * k, 0.165 * k), 0.035 * k)
-	match hair_style:
-		"short":
-			_add_sphere(head_part, head, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.08, 0.75, 1.05), hair)
-		"long":
-			_add_sphere(head_part, head, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.1, 0.78, 1.08), hair)
-			_add_limb(head_part, head, Vector3(0, 0.25 * k, -0.11 * k), Vector3(0, 0.0, -0.13 * k), 0.15 * k, hair)
+	# Hair lives in its own node so the hairstyle can be swapped later.
+	var hair_node := Node3D.new()
+	hair_node.name = "Hair"
+	head.add_child(hair_node)
+	figure["k"] = k
+	figure["head_part"] = head_part
+	figure["hair_node"] = hair_node
+	figure["hair"] = hair_style
+	_build_hair(figure, hair_style, hair)
 
 	figure["torso"] = torso
 	figure["head"] = head
@@ -456,19 +473,25 @@ func _build_humanoid(figure: Dictionary, k: float, shirt: Color, pants: Color, s
 		_add_limb(shin, knee, Vector3.ZERO, Vector3(0, -0.36 * k, 0), 0.09 * k, pants)
 		_add_sphere(shin, knee, Vector3(0, -0.4 * k, 0.05 * k), 0.1 * k, Vector3(0.9, 0.55, 1.4), shoes)
 
+	_register_slots(figure, {"Shirt": shirt, "Pants": pants, "Skin": skin, "Hair": hair, "Shoes": shoes})
 
-## Four-legged animals: Dog, Cat. The body runs front-to-back; each leg has two parts.
+
+## Four-legged animals: Dog, Cat. The body runs front-to-back in two sections (hips and chest)
+## joined in the middle, so the back can arch, curl, and twist. Each leg has two parts.
 func _build_quadruped(figure: Dictionary, length: float, height: float, fur: Color, muzzle: Color, ears: Color, ear_style: String, tall_tail: bool) -> void:
 	var root: Node3D = figure["root"]
 	var r := height * 0.42
 	var leg := height * 0.4
 
-	var body := _make_joint(root, "Body", Vector3(0, height, 0), Vector3.ZERO)
-	var body_part := _new_part(figure, "Body (whole body)", body)
-	_add_limb(body_part, body, Vector3(0, 0, -length * 0.5), Vector3(0, 0, length * 0.5), r, fur)
+	var body := _make_joint(root, "Hips", Vector3(0, height, 0), Vector3.ZERO)
+	var body_part := _new_part(figure, "Hips (whole body)", body)
+	_add_limb(body_part, body, Vector3.ZERO, Vector3(0, 0, -length * 0.5), r, fur)
+	var chest := _make_joint(body, "Chest", Vector3.ZERO, Vector3.ZERO)
+	var chest_part := _new_part(figure, "Chest", chest)
+	_add_limb(chest_part, chest, Vector3.ZERO, Vector3(0, 0, length * 0.5), r * 1.05, fur)
 
 	var hr := r * 0.95
-	var head := _make_joint(body, "Head", Vector3(0, r * 0.6, length * 0.5), Vector3.ZERO)
+	var head := _make_joint(chest, "Head", Vector3(0, r * 0.6, length * 0.5), Vector3.ZERO)
 	var head_part := _new_part(figure, "Head", head)
 	head_part["tip"] = Vector3(0, hr * 0.7, hr * 1.5)
 	_add_sphere(head_part, head, Vector3(0, hr * 0.7, hr * 0.5), hr, Vector3.ONE, fur)
@@ -482,7 +505,7 @@ func _build_quadruped(figure: Dictionary, length: float, height: float, fur: Col
 			_add_sphere(head_part, head, Vector3(hr * 0.85 * s, hr * 0.85, hr * 0.35), hr * 0.42, Vector3(0.45, 1.25, 0.8), ears)
 		else:
 			_add_cone(head_part, head, Vector3(hr * 0.55 * s, hr * 1.55, hr * 0.4), hr * 0.32, hr * 0.6, ears)
-	figure["torso"] = body
+	figure["torso"] = chest
 	figure["head"] = head
 	figure["head_center"] = Vector3(0, hr * 0.7, hr * 0.5)
 	figure["height"] = height + hr * 1.6
@@ -493,7 +516,9 @@ func _build_quadruped(figure: Dictionary, length: float, height: float, fur: Col
 		for side_value in [1.0, -1.0]:
 			var s: float = side_value
 			var leg_name: String = "%s %s" % [end_name, "Left" if s > 0.0 else "Right"]
-			var hip := _make_joint(body, leg_name.replace(" ", "") + "Hip", Vector3(r * 0.55 * s, -r * 0.3, length * 0.38 * f), Vector3.ZERO)
+			# Front legs hang from the chest, back legs from the hips.
+			var leg_parent: Node3D = chest if f > 0.0 else body
+			var hip := _make_joint(leg_parent, leg_name.replace(" ", "") + "Hip", Vector3(r * 0.55 * s, -r * 0.3, length * 0.38 * f), Vector3.ZERO)
 			var upper := _new_part(figure, leg_name + " Leg", hip)
 			_add_limb(upper, hip, Vector3.ZERO, Vector3(0, -leg, 0), r * 0.32, fur)
 			var knee := _make_joint(hip, leg_name.replace(" ", "") + "Knee", Vector3(0, -leg, 0), Vector3.ZERO)
@@ -505,6 +530,8 @@ func _build_quadruped(figure: Dictionary, length: float, height: float, fur: Col
 	var tail_part := _new_part(figure, "Tail", tail)
 	var tail_end := Vector3(0, height * 0.9, -height * 0.3) if tall_tail else Vector3(0, height * 0.35, -height * 0.45)
 	_add_limb(tail_part, tail, Vector3.ZERO, tail_end, r * (0.14 if tall_tail else 0.18), fur)
+
+	_register_slots(figure, {"Fur": fur, "Muzzle": muzzle, "Ears": ears})
 
 
 ## Props are one solid piece. Their meshes sit inside a "Body" node that squashes and stretches.
@@ -568,6 +595,11 @@ func _build_prop(figure: Dictionary) -> void:
 			figure["center"] = Vector3(0, 0.13, 0)
 	var center: Vector3 = figure["center"]
 	figure["height"] = maxf(center.y * 2.0, 0.3)
+	# A prop has one Color that paints every clay piece of it.
+	var materials: Array = part["materials"]
+	var first: StandardMaterial3D = materials[0]
+	figure["slots"] = {"Color": materials.duplicate()}
+	figure["colors"] = {"Color": first.albedo_color}
 
 
 func _make_joint(parent: Node3D, joint_name: String, pos: Vector3, rot_deg: Vector3) -> Node3D:
@@ -720,6 +752,186 @@ func _set_squash(figure: Dictionary, amount: float) -> void:
 		body.scale = _squash_scale(amount)
 
 
+## Groups a figure's clay materials by what they paint (Shirt, Skin, Fur, ...), using the colors it was built with.
+func _register_slots(figure: Dictionary, slot_colors: Dictionary) -> void:
+	var slots := {}
+	for slot in slot_colors:
+		slots[slot] = []
+	for part in figure["parts"]:
+		for mat_value in part["materials"]:
+			var mat: StandardMaterial3D = mat_value
+			for slot in slot_colors:
+				if mat.albedo_color.is_equal_approx(slot_colors[slot]):
+					slots[slot].append(mat)
+					break
+	figure["slots"] = slots
+	figure["colors"] = slot_colors.duplicate()
+
+
+func _set_figure_color(figure: Dictionary, slot: String, color: Color) -> void:
+	var slots: Dictionary = figure["slots"]
+	if not slots.has(slot):
+		return
+	figure["colors"][slot] = color
+	for mat_value in slots[slot]:
+		var mat: StandardMaterial3D = mat_value
+		mat.albedo_color = color
+
+
+## Builds one hairstyle inside the head's Hair node. Hair is part of the head, so it moves with it.
+func _build_hair(figure: Dictionary, style: String, color: Color) -> void:
+	var k: float = figure["k"]
+	var head_part: Dictionary = figure["head_part"]
+	var hair_node: Node3D = figure["hair_node"]
+	match style:
+		"short":
+			_add_sphere(head_part, hair_node, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.08, 0.75, 1.05), color)
+		"long":
+			_add_sphere(head_part, hair_node, Vector3(0, 0.3 * k, -0.04 * k), 0.2 * k, Vector3(1.12, 0.8, 1.1), color)
+			# Hair falls on both sides of the face to the shoulders, so it reads as long from the front.
+			for lock_side in [1.0, -1.0]:
+				var ls: float = lock_side
+				_add_limb(head_part, hair_node, Vector3(0.17 * k * ls, 0.27 * k, -0.03 * k), Vector3(0.19 * k * ls, -0.06 * k, -0.06 * k), 0.065 * k, color)
+			# The back of the hair falls past the shoulders.
+			_add_limb(head_part, hair_node, Vector3(0, 0.26 * k, -0.12 * k), Vector3(0, -0.14 * k, -0.2 * k), 0.15 * k, color)
+		"ponytail":
+			_add_sphere(head_part, hair_node, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.08, 0.75, 1.05), color)
+			_add_sphere(head_part, hair_node, Vector3(0, 0.29 * k, -0.2 * k), 0.06 * k, Vector3.ONE, color)
+			_add_limb(head_part, hair_node, Vector3(0, 0.27 * k, -0.24 * k), Vector3(0, 0.02 * k, -0.3 * k), 0.07 * k, color)
+		"bun":
+			_add_sphere(head_part, hair_node, Vector3(0, 0.3 * k, -0.05 * k), 0.19 * k, Vector3(1.08, 0.75, 1.05), color)
+			_add_sphere(head_part, hair_node, Vector3(0, 0.43 * k, -0.12 * k), 0.1 * k, Vector3.ONE, color)
+		"curly":
+			_add_sphere(head_part, hair_node, Vector3(0, 0.33 * k, -0.1 * k), 0.25 * k, Vector3(1.1, 0.85, 1.0), color)
+	# When restyling later, the new hair joins the Hair color slot.
+	var slots: Dictionary = figure["slots"]
+	if slots.has("Hair"):
+		for child in hair_node.get_children():
+			var mi := child as MeshInstance3D
+			if mi != null and not slots["Hair"].has(mi.material_override):
+				slots["Hair"].append(mi.material_override)
+
+
+## Swaps a person's hairstyle, keeping the hair color.
+func _set_hair(figure: Dictionary, style: String) -> void:
+	if not figure.has("hair_node") or figure["hair"] == style:
+		return
+	var head_part: Dictionary = figure["head_part"]
+	var hair_node: Node3D = figure["hair_node"]
+	var slots: Dictionary = figure["slots"]
+	var head_materials: Array = head_part["materials"]
+	for child in hair_node.get_children():
+		var mi := child as MeshInstance3D
+		if mi != null:
+			head_materials.erase(mi.material_override)
+			if slots.has("Hair"):
+				slots["Hair"].erase(mi.material_override)
+	var kept_shapes: Array = []
+	for shape in head_part["shapes"]:
+		var shape_mesh: Node = shape[0]
+		if shape_mesh.get_parent() != hair_node:
+			kept_shapes.append(shape)
+	head_part["shapes"] = kept_shapes
+	for child in hair_node.get_children():
+		child.free()
+	figure["hair"] = style
+	_build_hair(figure, style, figure["colors"].get("Hair", Color(0.2, 0.15, 0.1)))
+
+
+func _figure_style(figure: Dictionary) -> Dictionary:
+	return {"colors": (figure["colors"] as Dictionary).duplicate(), "hair": figure["hair"]}
+
+
+func _apply_style(figure: Dictionary, style: Dictionary) -> void:
+	var colors: Dictionary = style.get("colors", {})
+	for slot in colors:
+		var current: Color = figure["colors"].get(slot, Color.BLACK)
+		var wanted: Color = colors[slot]
+		if not current.is_equal_approx(wanted):
+			_set_figure_color(figure, str(slot), wanted)
+	var hair := str(style.get("hair", ""))
+	if hair != "" and figure.has("hair_node"):
+		_set_hair(figure, hair)
+
+
+## The Style panel: color buttons for the selected figure, and a hairstyle menu for people.
+func _refresh_style_panel(force: bool = false) -> void:
+	if style_box == null or not style_panel.visible:
+		return
+	var showing := "" if selected_figure.is_empty() else str(selected_figure["id"])
+	if showing == style_panel_for and not force:
+		return
+	style_panel_for = showing
+	for child in style_box.get_children():
+		child.queue_free()
+	if selected_figure.is_empty():
+		var hint := Label.new()
+		hint.text = "Click a character or prop\nto change how it looks."
+		style_box.add_child(hint)
+		return
+	var figure := selected_figure
+	var title := Label.new()
+	title.text = "STYLE: %s" % figure["name"]
+	title.add_theme_font_size_override("font_size", 14)
+	style_box.add_child(title)
+	var colors: Dictionary = figure["colors"]
+	for slot_value in colors:
+		var slot := str(slot_value)
+		var row := HBoxContainer.new()
+		var label := Label.new()
+		label.text = slot
+		label.custom_minimum_size = Vector2(70, 0)
+		row.add_child(label)
+		var button := ColorPickerButton.new()
+		button.color = colors[slot]
+		button.edit_alpha = false
+		button.custom_minimum_size = Vector2(110, 30)
+		button.focus_mode = Control.FOCUS_NONE
+		button.tooltip_text = "Pick a %s color." % slot.to_lower()
+		_setup_color_picker(button)
+		button.pressed.connect(_push_undo)
+		button.color_changed.connect(func(c: Color) -> void: _set_figure_color(figure, slot, c))
+		row.add_child(button)
+		style_box.add_child(row)
+	if figure.has("hair_node"):
+		var hair_row := HBoxContainer.new()
+		var hair_label := Label.new()
+		hair_label.text = "Hairstyle"
+		hair_label.custom_minimum_size = Vector2(70, 0)
+		hair_row.add_child(hair_label)
+		var hair_menu := OptionButton.new()
+		hair_menu.focus_mode = Control.FOCUS_NONE
+		hair_menu.tooltip_text = "Change this person's hairstyle."
+		var keys: Array = HAIR_STYLES.keys()
+		for i in keys.size():
+			hair_menu.add_item(str(HAIR_STYLES[keys[i]]), i)
+		hair_menu.select(keys.find(figure["hair"]))
+		hair_menu.item_selected.connect(func(index: int) -> void:
+			_push_undo()
+			_set_hair(figure, str(keys[index])))
+		hair_row.add_child(hair_menu)
+		style_box.add_child(hair_row)
+	var note := Label.new()
+	note.text = "Changes show up in the frames\nyou capture from now on."
+	note.add_theme_font_size_override("font_size", 12)
+	note.add_theme_color_override("font_color", Color(0.65, 0.67, 0.72))
+	style_box.add_child(note)
+
+
+## Keeps the color picker simple: the clay palette first, a color wheel, no advanced controls.
+func _setup_color_picker(button: ColorPickerButton) -> void:
+	button.get_popup().theme = ui_theme
+	var picker := button.get_picker()
+	picker.sampler_visible = false
+	picker.color_modes_visible = false
+	picker.sliders_visible = false
+	picker.hex_visible = false
+	picker.can_add_swatches = false
+	picker.presets_visible = true
+	for c in CLAY_PALETTE:
+		picker.add_preset(c)
+
+
 # ---------------------------------------------------------------- adding, removing, and the scene list
 
 func _add_figure(type: String) -> void:
@@ -745,6 +957,7 @@ func _remove_figure(figure: Dictionary) -> void:
 	(figure["root"] as Node3D).visible = false
 	_clear_stale_selection()
 	_refresh_scene_list()
+	_refresh_style_panel(true)
 	_flash_status("Removed %s. Undo brings it back." % figure["name"])
 
 
@@ -769,6 +982,7 @@ func _clear_stale_selection() -> void:
 func _update_selected_label() -> void:
 	if selected_label == null:
 		return
+	_refresh_style_panel()
 	selected_label.text = "Selected: none" if selected_figure.is_empty() else "Selected: %s" % selected_figure["name"]
 
 
@@ -821,7 +1035,7 @@ func _get_pose() -> Dictionary:
 				joints.append(joint.transform)
 				twists.append(part["twist"])
 		objects.append({"id": figure["id"], "type": figure["type"], "root": root.transform,
-			"joints": joints, "twists": twists, "squash": figure["squash"]})
+			"joints": joints, "twists": twists, "squash": figure["squash"], "style": _figure_style(figure)})
 	return {"objects": objects, "camera": shot_camera.global_transform, "fov": shot_camera.fov}
 
 
@@ -847,6 +1061,8 @@ func _apply_pose(pose: Dictionary) -> void:
 func _apply_object(figure: Dictionary, obj: Dictionary) -> void:
 	var root: Node3D = figure["root"]
 	root.transform = obj["root"]
+	if obj.has("style"):
+		_apply_style(figure, obj["style"])
 	if figure["kind"] == "character":
 		var joints: Array = obj.get("joints", [])
 		var twists: Array = obj.get("twists", [])
@@ -2182,6 +2398,12 @@ func _build_ui() -> void:
 	flow.add_child(_make_menu_button("Add Character", "Add a person or animal to the scene.", CHARACTER_TYPES, _add_figure))
 	flow.add_child(_make_menu_button("Add Prop", "Add an object to the scene.", PROP_TYPES, _add_figure))
 	_add_button(flow, "Remove", "Take the selected character or prop (the last one you clicked) out of the scene. (Delete)", _remove_selected)
+	var style_button := _make_button("Style", "Change colors (and hairstyles for people) on the selected character or prop.")
+	style_button.toggle_mode = true
+	style_button.toggled.connect(func(on: bool) -> void:
+		style_panel.visible = on
+		_refresh_style_panel(true))
+	flow.add_child(style_button)
 	var list_button := _make_button("Scene List", "Show everything in the scene.")
 	list_button.toggle_mode = true
 	list_button.toggled.connect(func(on: bool) -> void: scene_list_panel.visible = on)
@@ -2284,6 +2506,7 @@ func _build_ui() -> void:
 		+ "Hover over any button to see what it does.\n" \
 		+ "The light at the top left shows your mode: green Bend, yellow Twist, purple Move, white Lift, pink Squash, red Camera.\n" \
 		+ "Add Character and Add Prop put new things in the scene. Click something to select it; Remove takes it out.\n" \
+		+ "Style changes colors, and hairstyles for people, on whatever is selected.\n" \
 		+ "Bend and Twist work on props too. Lift raises anything off the table. Squash stretches and flattens props.\n" \
 		+ "Hover over a character or prop: the part you'd grab glows.\n" \
 		+ "Drag empty space, right-drag, or use arrow keys to look around (Studio View).\n" \
@@ -2309,6 +2532,16 @@ func _build_ui() -> void:
 	list_column.add_child(list_title)
 	scene_list_box = VBoxContainer.new()
 	list_column.add_child(scene_list_box)
+
+	# ---- Style panel (hidden until Style is pressed).
+	style_panel = PanelContainer.new()
+	style_panel.visible = false
+	style_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	style_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	column.add_child(style_panel)
+	style_box = VBoxContainer.new()
+	style_box.custom_minimum_size = Vector2(230, 0)
+	style_panel.add_child(style_box)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
