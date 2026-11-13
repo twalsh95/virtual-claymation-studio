@@ -16,7 +16,7 @@ const CAM_ZOOM_SPEED := 0.08
 const FRAME_RATES := [10, 12, 15, 24, 30, 60]
 const DEFAULT_FPS := 12
 const APP_NAME := "Virtual Claymation Studio"
-const PROJECT_VERSION := 3
+const PROJECT_VERSION := 4
 const PROJECT_EXT := "clay"
 const AUTOSAVE_PATH := "user://autosave.claymation"
 const AUTOSAVE_SECONDS := 5.0
@@ -46,6 +46,56 @@ const EXPORT_SIZES := [
 	["4k", "4K (3840 x 2160)", Vector2i(3840, 2160), "Very sharp and very big. MP4 only, and only on computers that can make 4K video."],
 ]
 const DEFAULT_EXPORT_SIZE := "720"
+
+# Lighting: three lamps with fixed roles. LIGHT_INFO: [name, lamp label, tooltip].
+const LIGHT_ROLES := ["key", "fill", "back"]
+const LIGHT_INFO := {
+	"key": ["Key", "KEY", "The key light: the main light. It sets the mood and makes the strongest shadows."],
+	"fill": ["Fill", "FILL", "The fill light: a softer light from the other side that fills in the key light's shadows."],
+	"back": ["Back", "BACK", "The back light: shines from behind to outline the subject and separate it from the background."],
+}
+const LIGHT_SPREAD := {"key": 40.0, "fill": 55.0, "back": 38.0}   # spot angle in degrees
+const GELS := {
+	"none": ["No gel", Color(1, 1, 1)], "red": ["Red", Color(1.0, 0.25, 0.2)], "orange": ["Orange", Color(1.0, 0.55, 0.2)],
+	"yellow": ["Yellow", Color(1.0, 0.9, 0.35)], "green": ["Green", Color(0.35, 1.0, 0.4)],
+	"blue": ["Blue", Color(0.3, 0.45, 1.0)], "purple": ["Purple", Color(0.7, 0.35, 1.0)],
+}
+const TEMP_MIN := 2700
+const TEMP_MAX := 7500
+const DEFAULT_LIGHT_AIM := Vector3(0, 0.8, 0)
+const DEFAULT_LIGHT_PRESET := "three_point"
+const LIGHT_ENERGY_SCALE := 0.06    # brightness 100 = this x 100 light energy
+const ROOM_ENERGY_SCALE := 0.007    # room light 100 = this x 100 ambient energy
+const LAMP_MIN_HEIGHT := 0.15
+const LAMP_MAX_HEIGHT := 4.0
+const LAMP_PICK_RADIUS := 0.2
+# Mood presets. Each lamp: offset from the aim point across the table (x, z), with y as the lamp's height.
+const LIGHT_PRESETS := {
+	"three_point": {"name": "Three-Point", "tip": "The standard setup: a key light, a softer fill, and a back light. Clear and natural.", "room": 45,
+		"key": {"on": true, "brightness": 70, "temp": 4200, "offset": Vector3(2.0, 2.4, 2.2)},
+		"fill": {"on": true, "brightness": 30, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
+		"back": {"on": true, "brightness": 60, "temp": 5600, "offset": Vector3(0.4, 2.6, -1.8)}},
+	"high_key": {"name": "High-Key", "tip": "Bright and even, with few shadows. Feels cheerful: comedies, commercials, sitcoms.", "room": 95,
+		"key": {"on": true, "brightness": 55, "temp": 5000, "offset": Vector3(0.5, 2.0, 3.2)},
+		"fill": {"on": true, "brightness": 70, "temp": 5600, "offset": Vector3(-1.4, 1.8, 3.0)},
+		"back": {"on": true, "brightness": 40, "temp": 5600, "offset": Vector3(0.0, 2.6, -1.8)}},
+	"low_key": {"name": "Low-Key", "tip": "Dark, with deep shadows and one strong light. Feels dramatic or mysterious: film noir, thrillers.", "room": 10,
+		"key": {"on": true, "brightness": 80, "temp": 3600, "offset": Vector3(2.6, 2.2, 0.8)},
+		"fill": {"on": true, "brightness": 8, "temp": 6000, "offset": Vector3(-2.4, 1.4, 2.4)},
+		"back": {"on": true, "brightness": 70, "temp": 5600, "offset": Vector3(-0.6, 2.6, -1.8)}},
+	"side": {"name": "Side Light", "tip": "Light from one side only, so half the face is in shadow. Feels secretive or torn between two sides.", "room": 8,
+		"key": {"on": true, "brightness": 85, "temp": 4200, "offset": Vector3(2.8, 1.2, 0.0)},
+		"fill": {"on": false, "brightness": 20, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
+		"back": {"on": true, "brightness": 35, "temp": 5600, "offset": Vector3(-0.4, 2.6, -1.8)}},
+	"under": {"name": "Under Light", "tip": "Light from below the face, which never happens in nature. Feels creepy: horror, campfire stories.", "room": 10,
+		"key": {"on": true, "brightness": 80, "temp": 4500, "offset": Vector3(0.4, 0.15, 1.6)},
+		"fill": {"on": false, "brightness": 20, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
+		"back": {"on": false, "brightness": 40, "temp": 5600, "offset": Vector3(0.4, 2.6, -1.8)}},
+	"silhouette": {"name": "Silhouette", "tip": "Only a back light, so the subject is a dark shape with a bright outline. Feels mysterious; hides who someone is.", "room": 0,
+		"key": {"on": false, "brightness": 70, "temp": 4200, "offset": Vector3(2.0, 2.4, 2.2)},
+		"fill": {"on": false, "brightness": 30, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
+		"back": {"on": true, "brightness": 100, "temp": 5600, "offset": Vector3(0.0, 2.0, -1.9)}},
+}
 const SHOT_LABEL_MAX := 40
 
 # What students can add to the scene.
@@ -87,6 +137,7 @@ const MODE_INFO := {
 	"lift": ["LIFT", Color(0.92, 0.92, 0.95)],
 	"squash": ["SQUASH", Color(1.0, 0.5, 0.8)],
 	"camera": ["CAMERA", Color(1.0, 0.25, 0.22)],
+	"light": ["LIGHT", Color(0.35, 0.6, 1.0)],
 }
 const TOOL_NAMES := {
 	"bend": "Bend", "twist": "Twist", "move": "Move", "lift": "Lift", "squash": "Squash",
@@ -110,6 +161,32 @@ var camera_default_fov := 40.0
 var shot_size := "wide"
 var shot_angle := 0.0
 var camera_warned := false
+
+# Lighting (see the lighting section).
+var world_environment: Environment
+var light_nodes: Dictionary = {}       # role -> SpotLight3D
+var lamp_models: Dictionary = {}       # role -> {head, pole, body_mat, glow_mat, label}
+var hovered_light := ""                # role of the lamp under the cursor
+var grab_light_role := ""
+var lighting_panel: PanelContainer
+var lighting_scroll: ScrollContainer
+var lighting_box: VBoxContainer
+var lighting_title: Label
+var light_lock_button: Button
+var light_lock_label: Label
+var light_preset_button: MenuButton
+var light_room_slider: HSlider
+var light_role_buttons: Dictionary = {}
+var light_role := "key"                # the lamp the panel is showing
+var light_on_check: CheckButton
+var light_brightness_slider: HSlider
+var light_temp_slider: HSlider
+var light_gel_option: OptionButton
+var light_height_slider: HSlider
+var light_controls: Array[Control] = []   # Greyed out while lighting is locked.
+var light_slider_titles: Dictionary = {}  # Label -> its title, for showing slider values.
+var lighting_ui_updating := false
+var light_slider_dragging := false
 
 # Tripod model and the lines showing what the camera sees.
 var camera_prop: Node3D
@@ -193,6 +270,7 @@ var shot_panel: PanelContainer
 var help_panel: PanelContainer
 var play_button: Button
 var play_all_button: Button
+var shot_strip: PanelContainer
 var shot_cards: HBoxContainer
 var shot_scroll: ScrollContainer
 var shot_label_edit: LineEdit
@@ -220,6 +298,7 @@ var export_size_row: HBoxContainer
 var export_size_option: OptionButton
 var export_size_keys: Array[String] = []   # Which size each menu item is, for the current format.
 var render_restore: Dictionary = {}        # The scene to put back after exporting re-renders frames.
+var render_lit_shot := -1                  # Which shot's lighting is on while re-rendering.
 var zip_packer: ZIPPacker                  # Frame zips when running in the editor (the browser builds its own).
 var zip_path := ""
 var exporting := false
@@ -247,6 +326,7 @@ var camera_controls: Array[Button] = []   # Disabled while the camera is locked.
 
 func _ready() -> void:
 	get_viewport().msaa_3d = Viewport.MSAA_2X
+	get_viewport().positional_shadow_atlas_size = 2048   # Room for the key light's shadow.
 	_build_environment()
 	_build_set()
 	_build_lights()
@@ -258,6 +338,7 @@ func _ready() -> void:
 	_build_shot_camera()
 	shots.append(_make_shot())
 	_bind_active_shot()
+	_apply_lighting(_lighting())
 	selected_figure = _spawn("kid", "", Vector3.ZERO)
 	_build_ui()
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -285,8 +366,9 @@ func _build_environment() -> void:
 	env.background_color = Color(0.11, 0.11, 0.13)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.55, 0.58, 0.65)
-	env.ambient_light_energy = 0.35
+	env.ambient_light_energy = 0.35   # The room light; each shot's lighting sets it.
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	world_environment = env
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
@@ -316,34 +398,6 @@ func _build_set() -> void:
 	backdrop_mat.roughness = 0.95
 	backdrop.material_override = backdrop_mat
 	add_child(backdrop)
-
-
-func _build_lights() -> void:
-	# Key light: warm, from the front right, casts shadows.
-	var key := DirectionalLight3D.new()
-	key.light_energy = 1.1
-	key.light_color = Color(1.0, 0.95, 0.85)
-	key.shadow_enabled = true
-	key.directional_shadow_max_distance = 12.0
-	key.rotation_degrees = Vector3(-45, 35, 0)
-	add_child(key)
-
-	# Fill light: soft and cool, from the front left.
-	var fill := OmniLight3D.new()
-	fill.position = Vector3(-3.0, 2.0, 3.0)
-	fill.light_energy = 0.4
-	fill.light_color = Color(0.8, 0.88, 1.0)
-	fill.omni_range = 10.0
-	add_child(fill)
-
-	# Back light: rim of light from behind and above.
-	var back := SpotLight3D.new()
-	back.position = Vector3(0, 2.6, -1.6)
-	back.light_energy = 2.0
-	back.spot_range = 6.0
-	back.spot_angle = 35.0
-	add_child(back)
-	back.look_at(Vector3(0, 1.1, 0), Vector3.UP)
 
 
 func _clay_material(color: Color) -> StandardMaterial3D:
@@ -1167,6 +1221,14 @@ func _undo() -> void:
 	if pose.has("restore_shot"):
 		_restore_deleted_shot(pose["restore_shot"], int(pose["index"]))
 		return
+	if pose.has("lighting"):
+		shots[active_shot]["lighting"] = pose["lighting"]
+		_lighting_changed(false)
+		# Lighting may have been locked since; its frames need the restored lighting right away.
+		if _lighting_locked():
+			await _relight_if_needed()
+		_flash_status("Undid the last lighting change.")
+		return
 	_apply_pose(pose)
 	_flash_status("Undid the last change.")
 
@@ -1338,6 +1400,9 @@ func _set_view(through_camera: bool) -> void:
 		_update_orbit()
 	hovered_camera = false
 	_set_camera_glow(false)
+	hovered_light = ""
+	if not lamp_models.is_empty():
+		_set_lamp_glow("")
 	if camera_screen != null:
 		camera_backdrop.visible = camera_view
 		camera_border.visible = camera_view
@@ -1417,6 +1482,7 @@ func _build_shot_camera() -> void:
 	shot_viewport.size = SHOT_RENDER_SIZE
 	shot_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	shot_viewport.msaa_3d = Viewport.MSAA_2X
+	shot_viewport.positional_shadow_atlas_size = 2048
 	add_child(shot_viewport)
 
 	shot_camera = Camera3D.new()
@@ -1685,6 +1751,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				undo_pending = false
 				if drag_mode in CAMERA_TOOLS or drag_mode == "grab_camera":
 					_camera_change_begins()
+				elif drag_mode == "grab_light":
+					_push_light_undo()
 				else:
 					_push_undo()
 			match drag_mode:
@@ -1700,6 +1768,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					_squash_drag(mm.relative)
 				"grab_camera":
 					_grab_camera_to(mm.position)
+				"grab_light":
+					_grab_light_to(mm.position)
 				"orbit":
 					_orbit(mm.relative)
 				"pan", "truck", "dolly", "zoom":
@@ -1760,6 +1830,27 @@ func _begin_drag(screen_pos: Vector2) -> void:
 	var hit := _pick_part(screen_pos)
 	var cam_t := _pick_camera(screen_pos)
 	var hit_t: float = hit["t"] if not hit.is_empty() else INF
+	var lamp := _pick_light(screen_pos)
+	var lamp_t: float = lamp.get("t", INF)
+
+	# Grabbing a lamp in Studio View slides it across the table.
+	if lamp_t < hit_t and lamp_t < cam_t:
+		var role: String = lamp["role"]
+		_select_light_role(role)
+		if _refuse_if_lighting_locked():
+			drag_mode = "none"
+			return
+		var lamp_origin := work_camera.project_ray_origin(screen_pos)
+		var lamp_dir := work_camera.project_ray_normal(screen_pos)
+		var lamp_point := lamp_origin + lamp_dir * lamp_t
+		move_plane_y = lamp_point.y
+		move_offset = (_lighting()["lights"][role]["pos"] as Vector3) - lamp_point
+		grab_light_role = role
+		drag_mode = "grab_light"
+		undo_pending = true
+		_update_indicator()
+		Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+		return
 
 	# Grabbing the tripod in Studio View slides it across the table.
 	if cam_t < hit_t:
@@ -1831,6 +1922,8 @@ func _end_drag(screen_pos: Vector2) -> void:
 	grab_figure = {}
 	hovered = {}
 	hovered_camera = false
+	hovered_light = ""
+	grab_light_role = ""
 	_update_indicator()
 	_update_hover(screen_pos)
 
@@ -1842,22 +1935,31 @@ func _update_hover(screen_pos: Vector2) -> void:
 		_set_highlight({})
 		hovered = {}
 		_set_camera_glow(false)
+		hovered_light = ""
+		_set_lamp_glow("")
 		Input.set_default_cursor_shape(Input.CURSOR_MOVE)
 		return
 	var hit := _pick_part(screen_pos)
 	var cam_t := _pick_camera(screen_pos)
 	var hit_t: float = hit["t"] if not hit.is_empty() else INF
-	var over_camera := cam_t < hit_t
+	var lamp := _pick_light(screen_pos)
+	var lamp_t: float = lamp.get("t", INF)
+	var over_lamp := lamp_t < hit_t and lamp_t < cam_t
+	var over_camera := cam_t < hit_t and not over_lamp
 	var part: Dictionary = {}
-	if not hit.is_empty() and not over_camera:
+	if not hit.is_empty() and not over_camera and not over_lamp:
 		part = hit["part"]
 	if over_camera != hovered_camera:
 		hovered_camera = over_camera
 		_set_camera_glow(over_camera)
+	var lamp_role: String = lamp["role"] if over_lamp else ""
+	if lamp_role != hovered_light:
+		hovered_light = lamp_role
+		_set_lamp_glow(lamp_role)
 	if not is_same(part, hovered):
 		hovered = part
 		_set_highlight(part)
-	if over_camera or not part.is_empty():
+	if over_camera or over_lamp or not part.is_empty():
 		Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND)
 	else:
 		Input.set_default_cursor_shape(Input.CURSOR_ARROW)
@@ -2149,6 +2251,8 @@ func _update_indicator() -> void:
 	var mode := current_tool
 	if current_tool in CAMERA_TOOLS or drag_mode == "grab_camera":
 		mode = "camera"
+	elif drag_mode == "grab_light":
+		mode = "light"
 	var info: Array = MODE_INFO[mode]
 	var color: Color = info[1]
 	indicator_style.bg_color = color
@@ -2163,6 +2267,13 @@ func _update_indicator() -> void:
 func _capture_frame() -> void:
 	if capturing:
 		return
+	# Frames whose lighting changed get fresh pictures first, so the onion skin and playback match.
+	await _relight_if_needed()
+	# Capturing locks the shot's lighting, like a crew locking down before shooting.
+	var just_locked := not _lighting_locked()
+	if just_locked:
+		shots[active_shot]["light_locked"] = true
+		_refresh_lighting_panel()
 	capturing = true
 	if playing:
 		_stop_playback()
@@ -2183,6 +2294,9 @@ func _capture_frame() -> void:
 	flash_rect.color = Color(1, 1, 1, 0.8)
 	var tween := create_tween()
 	tween.tween_property(flash_rect, "color:a", 0.0, 0.25)
+	if just_locked:
+		_flash_status("Lighting is now locked for Shot %d, so it stays the same in every frame. " % (active_shot + 1)
+			+ "To change it, open Lighting and press Unlock Lighting.", 6.0)
 
 
 ## Shrinks a captured picture to the size kept in memory. Full-size pictures are made fresh at export.
@@ -2219,6 +2333,7 @@ func _toggle_playback(all_shots: bool = false) -> void:
 	if playing:
 		_stop_playback()
 		return
+	await _relight_if_needed()
 	play_list.clear()
 	if all_shots:
 		for shot in shots:
@@ -2277,6 +2392,7 @@ func _process(delta: float) -> void:
 			_autosave()
 
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
+	_fit_lighting_panel()
 
 	if status_timer > 0.0:
 		status_timer -= delta
@@ -2292,6 +2408,9 @@ func _process(delta: float) -> void:
 		label_text = TOOL_NAMES[current_tool]
 	elif hovered_camera or drag_mode == "grab_camera":
 		label_text = "Move Camera"
+	elif drag_mode == "grab_light" or hovered_light != "":
+		var role := grab_light_role if drag_mode == "grab_light" else hovered_light
+		label_text = "Move %s Light" % LIGHT_INFO[role][0]
 	elif not hovered.is_empty() or (dragging and drag_mode == current_tool):
 		label_text = TOOL_NAMES[current_tool]
 	cursor_label.visible = label_text != ""
@@ -2327,11 +2446,16 @@ func _process(delta: float) -> void:
 
 # ---------------------------------------------------------------- shots
 
-func _make_shot(label: String = "") -> Dictionary:
+## lighting: the shot's lighting setup ({} for the default). light_locked: lighting can't change until
+## unlocked. relight: its lighting changed since its frames' pictures were made.
+func _make_shot(label: String = "", lighting: Dictionary = {}) -> Dictionary:
 	var poses: Array[Dictionary] = []
 	var textures: Array[ImageTexture] = []
 	var undo: Array[Dictionary] = []
-	return {"label": label, "poses": poses, "textures": textures, "undo": undo, "working": {}}
+	if lighting.is_empty():
+		lighting = _make_lighting(DEFAULT_LIGHT_PRESET, DEFAULT_LIGHT_AIM)
+	return {"label": label, "poses": poses, "textures": textures, "undo": undo, "working": {},
+		"lighting": lighting, "light_locked": false, "relight": false}
 
 
 ## Points frame_poses, frame_textures, and undo_stack at the active shot's own arrays,
@@ -2365,6 +2489,8 @@ func _load_shot_scene() -> void:
 		pose = frame_poses[frame_poses.size() - 1]
 	if not pose.is_empty():
 		_apply_pose(pose)
+	_apply_lighting(shot["lighting"])
+	_refresh_lighting_panel()
 	camera_warned = false
 	shot_label_edit.text = str(shot["label"])
 	_update_shot_title()
@@ -2379,6 +2505,7 @@ func _switch_shot(index: int) -> void:
 	if playing:
 		_stop_playback()
 	shots[active_shot]["working"] = _get_pose()
+	await _relight_if_needed()
 	active_shot = index
 	_bind_active_shot()
 	_load_shot_scene()
@@ -2403,9 +2530,12 @@ func _new_shot(from_warning: bool = false) -> void:
 		working["fov"] = last["fov"]
 	shots[active_shot]["working"] = working
 	var from_name := "Shot %d" % (active_shot + 1)
+	# The new shot starts with the same lighting, unlocked until its first capture.
+	var lighting: Dictionary = _lighting().duplicate(true)
 	active_shot += 1
-	shots.insert(active_shot, _make_shot())
+	shots.insert(active_shot, _make_shot("", lighting))
 	_bind_active_shot()
+	_refresh_lighting_panel()
 	camera_warned = false
 	shot_label_edit.text = ""
 	_update_shot_title()
@@ -2536,6 +2666,7 @@ func _make_shot_card() -> Button:
 ## The shot strip along the bottom: the shot controls on top, then a scrolling row of shot cards.
 func _build_shot_strip(parent: Control) -> void:
 	var strip := PanelContainer.new()
+	shot_strip = strip
 	strip.mouse_filter = Control.MOUSE_FILTER_STOP
 	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	strip.size_flags_vertical = Control.SIZE_SHRINK_END
@@ -2576,6 +2707,616 @@ func _build_shot_strip(parent: Control) -> void:
 	shot_cards = HBoxContainer.new()
 	shot_cards.add_theme_constant_override("separation", 6)
 	shot_scroll.add_child(shot_cards)
+
+
+# ---------------------------------------------------------------- lighting
+# Each shot has its own lighting setup (see "Lighting design" in the design document):
+#   {preset, room (0-100), aim (the point every lamp points at),
+#    lights: {key/fill/back: {on, brightness (0-100), temp (Kelvin), gel, pos}}}
+# Frames store poses, not lighting, so changing a shot's lighting relights every frame in it together.
+
+## The three lamps (spot lights) and their models on stands, seen only in Studio View.
+func _build_lights() -> void:
+	for role in LIGHT_ROLES:
+		var spot := SpotLight3D.new()
+		spot.name = "%sLight" % role.capitalize()
+		spot.spot_angle = LIGHT_SPREAD[role]
+		spot.spot_angle_attenuation = 0.6
+		# Only the key light casts shadows: fill light is soft in real life, and one shadow keeps the app fast.
+		spot.shadow_enabled = role == "key"
+		spot.shadow_bias = 0.04
+		spot.shadow_normal_bias = 1.5
+		add_child(spot)
+		light_nodes[role] = spot
+		lamp_models[role] = _build_lamp_model(role)
+
+
+func _build_lamp_model(role: String) -> Dictionary:
+	var body_mat := StandardMaterial3D.new()
+	body_mat.albedo_color = Color(0.16, 0.16, 0.18)
+	body_mat.roughness = 0.5
+	body_mat.emission = Color(0.35, 0.6, 1.0)
+	body_mat.emission_energy_multiplier = 0.8
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	# The lamp head points along -Z, so look_at aims it.
+	var head := Node3D.new()
+	add_child(head)
+	var can := MeshInstance3D.new()
+	var can_mesh := CylinderMesh.new()
+	can_mesh.top_radius = 0.13
+	can_mesh.bottom_radius = 0.09
+	can_mesh.height = 0.24
+	can.mesh = can_mesh
+	can.rotation_degrees = Vector3(-90, 0, 0)
+	can.material_override = body_mat
+	head.add_child(can)
+	var lens := MeshInstance3D.new()
+	var lens_mesh := CylinderMesh.new()
+	lens_mesh.top_radius = 0.12
+	lens_mesh.bottom_radius = 0.12
+	lens_mesh.height = 0.01
+	lens.mesh = lens_mesh
+	lens.rotation_degrees = Vector3(-90, 0, 0)
+	lens.position = Vector3(0, 0, -0.125)
+	lens.material_override = glow_mat
+	head.add_child(lens)
+
+	# The pole is 1 unit tall and stretched to the lamp's height in _apply_lighting.
+	var pole := MeshInstance3D.new()
+	var pole_mesh := CylinderMesh.new()
+	pole_mesh.top_radius = 0.02
+	pole_mesh.bottom_radius = 0.02
+	pole_mesh.height = 1.0
+	pole.mesh = pole_mesh
+	pole.material_override = body_mat
+	add_child(pole)
+
+	for mi in [can, lens, pole]:
+		var m: MeshInstance3D = mi
+		m.layers = LAYER_CAMERA_PROP
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var label := Label3D.new()
+	label.text = LIGHT_INFO[role][1]
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.font_size = 40
+	label.outline_size = 8
+	label.pixel_size = 0.004
+	label.layers = LAYER_CAMERA_PROP
+	add_child(label)
+	return {"head": head, "pole": pole, "body_mat": body_mat, "glow_mat": glow_mat, "label": label}
+
+
+## A lighting setup from a mood preset, centered on aim.
+func _make_lighting(preset_key: String, aim: Vector3) -> Dictionary:
+	var preset: Dictionary = LIGHT_PRESETS[preset_key]
+	var lights := {}
+	for role in LIGHT_ROLES:
+		var p: Dictionary = preset[role]
+		var offset: Vector3 = p["offset"]
+		lights[role] = {"on": p["on"], "brightness": float(p["brightness"]), "temp": int(p["temp"]),
+			"gel": str(p.get("gel", "none")), "pos": _clamp_lamp(Vector3(aim.x + offset.x, offset.y, aim.z + offset.z))}
+	return {"preset": preset_key, "room": float(preset["room"]), "aim": aim, "lights": lights}
+
+
+## Fills in anything missing from a saved lighting setup (older files, damaged files).
+func _clean_lighting(raw: Variant) -> Dictionary:
+	var setup := _make_lighting(DEFAULT_LIGHT_PRESET, DEFAULT_LIGHT_AIM)
+	if typeof(raw) != TYPE_DICTIONARY:
+		return setup
+	var saved: Dictionary = raw
+	if saved.get("aim") is Vector3:
+		setup["aim"] = saved["aim"]
+	setup["preset"] = str(saved.get("preset", "custom"))
+	setup["room"] = clampf(float(saved.get("room", setup["room"])), 0.0, 100.0)
+	var saved_lights: Variant = saved.get("lights")
+	if typeof(saved_lights) == TYPE_DICTIONARY:
+		for role in LIGHT_ROLES:
+			var info: Variant = (saved_lights as Dictionary).get(role)
+			if typeof(info) != TYPE_DICTIONARY:
+				continue
+			var light: Dictionary = setup["lights"][role]
+			var d: Dictionary = info
+			light["on"] = bool(d.get("on", light["on"]))
+			light["brightness"] = clampf(float(d.get("brightness", light["brightness"])), 0.0, 100.0)
+			light["temp"] = clampi(int(d.get("temp", light["temp"])), TEMP_MIN, TEMP_MAX)
+			light["gel"] = str(d.get("gel", "none")) if GELS.has(str(d.get("gel", "none"))) else "none"
+			if d.get("pos") is Vector3:
+				light["pos"] = _clamp_lamp(d["pos"])
+	return setup
+
+
+func _clamp_lamp(p: Vector3) -> Vector3:
+	return Vector3(clampf(p.x, -3.4, 3.4), clampf(p.y, LAMP_MIN_HEIGHT, LAMP_MAX_HEIGHT), clampf(p.z, -2.1, 4.1))
+
+
+func _lighting() -> Dictionary:
+	return shots[active_shot]["lighting"]
+
+
+## A color temperature in Kelvin as a light color: low numbers are warm (orange), high numbers cool (blue).
+func _kelvin_color(kelvin: float) -> Color:
+	var t := kelvin / 100.0
+	var r := 255.0
+	var g: float
+	var b := 255.0
+	if t <= 66.0:
+		g = 99.4708025861 * log(t) - 161.1195681661
+		b = 0.0 if t <= 19.0 else 138.5177312231 * log(t - 10.0) - 305.0447927307
+	else:
+		r = 329.698727446 * pow(t - 60.0, -0.1332047592)
+		g = 288.1221695283 * pow(t - 60.0, -0.0755148492)
+	var c := Color(clampf(r, 0.0, 255.0) / 255.0, clampf(g, 0.0, 255.0) / 255.0, clampf(b, 0.0, 255.0) / 255.0)
+	var top := maxf(c.r, maxf(c.g, c.b))
+	return Color(c.r / top, c.g / top, c.b / top)
+
+
+func _light_color(light: Dictionary) -> Color:
+	var gel: Color = GELS.get(str(light["gel"]), GELS["none"])[1]
+	return _kelvin_color(float(light["temp"])) * gel
+
+
+## Sets the lamps, their models, and the room light from a lighting setup.
+func _apply_lighting(setup: Dictionary) -> void:
+	var aim: Vector3 = setup["aim"]
+	world_environment.ambient_light_energy = float(setup["room"]) * ROOM_ENERGY_SCALE
+	for role in LIGHT_ROLES:
+		var light: Dictionary = setup["lights"][role]
+		var spot: SpotLight3D = light_nodes[role]
+		var pos: Vector3 = light["pos"]
+		spot.position = pos
+		var to_aim := aim - pos
+		if to_aim.length() > 0.01:
+			# look_at can't use "up" when a lamp points straight down.
+			var up := Vector3.FORWARD if absf(to_aim.normalized().y) > 0.98 else Vector3.UP
+			spot.look_at(aim, up)
+		spot.spot_range = to_aim.length() + 6.0
+		spot.visible = light["on"]
+		spot.light_energy = float(light["brightness"]) * LIGHT_ENERGY_SCALE
+		var color := _light_color(light)
+		spot.light_color = color
+
+		var model: Dictionary = lamp_models[role]
+		var head: Node3D = model["head"]
+		head.transform = spot.transform
+		var pole: MeshInstance3D = model["pole"]
+		var height := maxf(pos.y - 0.08, 0.05)
+		pole.position = Vector3(pos.x, height * 0.5, pos.z)
+		pole.scale = Vector3(1, height, 1)
+		var label: Label3D = model["label"]
+		label.position = pos + Vector3(0, 0.3, 0)
+		label.modulate = color if light["on"] else Color(0.55, 0.55, 0.6)
+		var glow: StandardMaterial3D = model["glow_mat"]
+		glow.albedo_color = color if light["on"] else Color(0.12, 0.12, 0.14)
+
+
+## Called after any change to the active shot's lighting.
+func _lighting_changed(custom: bool = true) -> void:
+	var setup := _lighting()
+	if custom:
+		setup["preset"] = "custom"
+	_apply_lighting(setup)
+	if not frame_poses.is_empty():
+		shots[active_shot]["relight"] = true
+	_refresh_lighting_panel()
+
+
+func _lighting_locked() -> bool:
+	return bool(shots[active_shot]["light_locked"])
+
+
+## Returns true (after telling the student) when lighting can't be changed right now.
+func _refuse_if_lighting_locked() -> bool:
+	if not _lighting_locked():
+		return false
+	_flash_status("Lighting is locked for Shot %d. Press Unlock Lighting in the Lighting panel to change it." % (active_shot + 1), 5.0)
+	return true
+
+
+func _push_light_undo() -> void:
+	undo_stack.append({"lighting": _lighting().duplicate(true)})
+	if undo_stack.size() > MAX_UNDO:
+		undo_stack.pop_front()
+
+
+## Makes fresh kept pictures for any shot whose lighting changed since its frames were captured.
+func _relight_if_needed() -> void:
+	var waiting: Array[int] = []
+	for i in shots.size():
+		if shots[i].get("relight", false):
+			waiting.append(i)
+	if waiting.is_empty():
+		return
+	var total := 0
+	for s in waiting:
+		total += (shots[s]["poses"] as Array).size()
+	_begin_render(SHOT_RENDER_SIZE)
+	await RenderingServer.frame_post_draw
+	var done := 0
+	for s in waiting:
+		_apply_lighting(shots[s]["lighting"])
+		var poses: Array[Dictionary] = shots[s]["poses"]
+		var textures: Array[ImageTexture] = shots[s]["textures"]
+		for i in poses.size():
+			done += 1
+			busy_label.text = "Relighting Shot %d: frame %d of %d" % [s + 1, done, total]
+			_apply_pose(poses[i])
+			await RenderingServer.frame_post_draw
+			textures[i] = ImageTexture.create_from_image(_keep_size(shot_viewport.get_texture().get_image()))
+		shots[s]["relight"] = false
+	_end_render()
+	_update_frame_info()
+
+
+func _apply_light_preset(preset_key: String) -> void:
+	if _refuse_if_lighting_locked():
+		return
+	_push_light_undo()
+	shots[active_shot]["lighting"] = _make_lighting(preset_key, _lighting()["aim"])
+	_lighting_changed(false)
+	var preset: Dictionary = LIGHT_PRESETS[preset_key]
+	_flash_status("%s: %s" % [preset["name"], preset["tip"]], 6.0)
+
+
+## Moves the whole lighting setup so it's centered on the selected character or prop.
+func _center_lights_on_selected() -> void:
+	if _refuse_if_lighting_locked():
+		return
+	if selected_figure.is_empty() or not (selected_figure["root"] as Node3D).visible:
+		_flash_status("Click a character or prop first, then press Center on Selected.")
+		return
+	var root: Node3D = selected_figure["root"]
+	var spot := root.global_position
+	var target := Vector3(spot.x, clampf(spot.y + float(selected_figure["height"]) * 0.6, 0.2, 2.5), spot.z)
+	_push_light_undo()
+	var setup := _lighting()
+	var old_aim: Vector3 = setup["aim"]
+	var shift := Vector3(target.x - old_aim.x, 0.0, target.z - old_aim.z)
+	for role in LIGHT_ROLES:
+		var light: Dictionary = setup["lights"][role]
+		light["pos"] = _clamp_lamp((light["pos"] as Vector3) + shift)
+	setup["aim"] = target
+	_lighting_changed(false)
+	_flash_status("The lights now point at the %s." % str(selected_figure["name"]))
+
+
+func _on_light_lock_pressed() -> void:
+	var shot: Dictionary = shots[active_shot]
+	if not shot["light_locked"]:
+		shot["light_locked"] = true
+		_refresh_lighting_panel()
+		await _relight_if_needed()
+		_flash_status("Lighting locked for Shot %d." % (active_shot + 1))
+		return
+	if frame_poses.is_empty():
+		_unlock_lighting()
+		return
+	var count := frame_poses.size()
+	_confirm("Unlock lighting for Shot %d? Any change will relight all %d of its frame%s, so they stay consistent." % [
+		active_shot + 1, count, "" if count == 1 else "s"], _unlock_lighting)
+
+
+func _unlock_lighting() -> void:
+	shots[active_shot]["light_locked"] = false
+	_refresh_lighting_panel()
+	_flash_status("Lighting unlocked for Shot %d. It locks again when you press Lock Lighting or capture a frame." % (active_shot + 1), 5.0)
+
+
+func _apply_lighting_to_all_pressed() -> void:
+	if shots.size() <= 1:
+		_flash_status("There's only one shot so far. New shots start with this shot's lighting.")
+		return
+	var frames := 0
+	for i in shots.size():
+		if i != active_shot:
+			frames += (shots[i]["poses"] as Array).size()
+	var relight_note := " This relights %d frames in your other shots." % frames if frames > 0 else ""
+	_confirm("Give every shot the same lighting as Shot %d?%s" % [active_shot + 1, relight_note], _apply_lighting_to_all)
+
+
+func _apply_lighting_to_all() -> void:
+	for i in shots.size():
+		if i == active_shot:
+			continue
+		shots[i]["lighting"] = _lighting().duplicate(true)
+		if not (shots[i]["poses"] as Array).is_empty():
+			shots[i]["relight"] = true
+	await _relight_if_needed()
+	_flash_status("Every shot now has the same lighting as Shot %d." % (active_shot + 1))
+
+
+## Distance along the cursor ray to the nearest lamp, as {role, t}, or {} (lamps only show in Studio View).
+func _pick_light(screen_pos: Vector2) -> Dictionary:
+	if camera_view:
+		return {}
+	var origin := work_camera.project_ray_origin(screen_pos)
+	var dir := work_camera.project_ray_normal(screen_pos)
+	var far_point := origin + dir * 100.0
+	var best := {}
+	var best_t := INF
+	for role in LIGHT_ROLES:
+		var pos: Vector3 = _lighting()["lights"][role]["pos"]
+		var head_t := _ray_capsule(origin, far_point, pos, pos, LAMP_PICK_RADIUS)
+		var pole_t := _ray_capsule(origin, far_point, pos, Vector3(pos.x, 0.0, pos.z), 0.06)
+		var t := minf(head_t, pole_t)
+		if t < best_t:
+			best_t = t
+			best = {"role": role, "t": t}
+	return best
+
+
+func _set_lamp_glow(role: String) -> void:
+	for r in LIGHT_ROLES:
+		var mat: StandardMaterial3D = lamp_models[r]["body_mat"]
+		mat.emission_enabled = r == role
+
+
+## Dragging a lamp: it slides across the table under the cursor, keeping its height and aim.
+func _grab_light_to(screen_pos: Vector2) -> void:
+	var hit_v: Variant = _ray_hit_plane(screen_pos, Plane(Vector3.UP, move_plane_y))
+	if hit_v == null:
+		return
+	var light: Dictionary = _lighting()["lights"][grab_light_role]
+	var p: Vector3 = (hit_v as Vector3) + move_offset
+	p.y = (light["pos"] as Vector3).y
+	light["pos"] = _clamp_lamp(p)
+	_lighting_changed()
+
+
+# ---- Lighting panel
+
+func _build_lighting_panel(parent: Control) -> void:
+	lighting_panel = PanelContainer.new()
+	lighting_panel.visible = false
+	lighting_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	lighting_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	parent.add_child(lighting_panel)
+	# The panel scrolls when the screen is too short to show it all above the shot strip (_fit_lighting_panel).
+	lighting_scroll = ScrollContainer.new()
+	lighting_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	lighting_panel.add_child(lighting_scroll)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 5)
+	box.custom_minimum_size = Vector2(390, 0)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lighting_scroll.add_child(box)
+	lighting_box = box
+
+	lighting_title = Label.new()
+	lighting_title.add_theme_font_size_override("font_size", 14)
+	box.add_child(lighting_title)
+
+	var lock_row := HBoxContainer.new()
+	box.add_child(lock_row)
+	light_lock_button = _add_button(lock_row, "Lock Lighting", "", _on_light_lock_pressed)
+	light_lock_label = Label.new()
+	light_lock_label.add_theme_font_size_override("font_size", 12)
+	light_lock_label.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	light_lock_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	light_lock_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lock_row.add_child(light_lock_label)
+
+	var mood_row := HBoxContainer.new()
+	box.add_child(mood_row)
+	var mood_title := Label.new()
+	mood_title.text = "Mood:"
+	mood_title.tooltip_text = "Start from a lighting mood, then adjust each light. Hover over a mood to see what it's for."
+	mood_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	mood_row.add_child(mood_title)
+	light_preset_button = MenuButton.new()
+	light_preset_button.flat = false
+	light_preset_button.focus_mode = Control.FOCUS_NONE
+	light_preset_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	light_preset_button.tooltip_text = mood_title.tooltip_text
+	var popup := light_preset_button.get_popup()
+	popup.theme = ui_theme
+	var keys: Array = LIGHT_PRESETS.keys()
+	for i in keys.size():
+		var preset: Dictionary = LIGHT_PRESETS[keys[i]]
+		popup.add_item(str(preset["name"]), i)
+		popup.set_item_tooltip(i, str(preset["tip"]))
+	popup.id_pressed.connect(func(index: int) -> void: _apply_light_preset(str(keys[index])))
+	mood_row.add_child(light_preset_button)
+	light_controls.append(light_preset_button)
+
+	light_room_slider = _add_light_slider(box, "Room light", "Soft light that fills the whole room. Turn it down for dark, dramatic moods; up for bright ones.", 0.0, 100.0, 1.0)
+	light_room_slider.value_changed.connect(func(value: float) -> void:
+		if _light_slider_change():
+			_lighting()["room"] = value
+			_lighting_changed())
+
+	box.add_child(HSeparator.new())
+	var role_row := HBoxContainer.new()
+	box.add_child(role_row)
+	var role_group := ButtonGroup.new()
+	for role in LIGHT_ROLES:
+		var b := _make_button(LIGHT_INFO[role][0], LIGHT_INFO[role][2])
+		b.toggle_mode = true
+		b.button_group = role_group
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(_select_light_role.bind(role))
+		role_row.add_child(b)
+		light_role_buttons[role] = b
+
+	# The On switch sits beside the light buttons. Plain switch look (the theme's button colors don't fit it).
+	light_on_check = CheckButton.new()
+	light_on_check.text = "On"
+	light_on_check.focus_mode = Control.FOCUS_NONE
+	light_on_check.tooltip_text = "Turn this light on or off. Some moods use only one or two lights."
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		light_on_check.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	for state in ["font_pressed_color", "font_hover_pressed_color"]:
+		light_on_check.add_theme_color_override(state, Color(0.95, 0.95, 0.97))
+	light_on_check.toggled.connect(func(on: bool) -> void:
+		if lighting_ui_updating:
+			return
+		_push_light_undo()
+		_lighting()["lights"][light_role]["on"] = on
+		_lighting_changed())
+	role_row.add_child(light_on_check)
+	light_controls.append(light_on_check)
+
+	light_brightness_slider = _add_light_slider(box, "Brightness", "How strong this light is.", 0.0, 100.0, 1.0)
+	light_brightness_slider.value_changed.connect(func(value: float) -> void:
+		if _light_slider_change():
+			_lighting()["lights"][light_role]["brightness"] = value
+			_lighting_changed())
+
+	light_temp_slider = _add_light_slider(box, "Color temperature", "Warm (orange) to cool (blue), measured in Kelvin. "
+		+ "Indoor tungsten bulbs are about 3200K; daylight is about 5600K.", TEMP_MIN, TEMP_MAX, 100.0)
+	light_temp_slider.value_changed.connect(func(value: float) -> void:
+		if _light_slider_change():
+			_lighting()["lights"][light_role]["temp"] = int(value)
+			_lighting_changed())
+
+	var gel_row := HBoxContainer.new()
+	box.add_child(gel_row)
+	var gel_title := Label.new()
+	gel_title.text = "Gel:"
+	gel_title.tooltip_text = "A gel is a sheet of colored plastic clipped in front of a light to tint it. Try blue for night or red for danger."
+	gel_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	gel_row.add_child(gel_title)
+	light_gel_option = OptionButton.new()
+	light_gel_option.focus_mode = Control.FOCUS_NONE
+	light_gel_option.tooltip_text = gel_title.tooltip_text
+	light_gel_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for key in GELS:
+		light_gel_option.add_item(str(GELS[key][0]))
+	light_gel_option.item_selected.connect(func(index: int) -> void:
+		if lighting_ui_updating:
+			return
+		_push_light_undo()
+		_lighting()["lights"][light_role]["gel"] = str(GELS.keys()[index])
+		_lighting_changed())
+	gel_row.add_child(light_gel_option)
+	light_controls.append(light_gel_option)
+
+	light_height_slider = _add_light_slider(box, "Height", "Raise or lower this lamp. High light looks natural; light from down low looks strange and scary. "
+		+ "To move a lamp around the subject, drag it in Studio View.", LAMP_MIN_HEIGHT, LAMP_MAX_HEIGHT, 0.05)
+	light_height_slider.value_changed.connect(func(value: float) -> void:
+		if _light_slider_change():
+			var light: Dictionary = _lighting()["lights"][light_role]
+			var p: Vector3 = light["pos"]
+			light["pos"] = _clamp_lamp(Vector3(p.x, value, p.z))
+			_lighting_changed())
+
+	box.add_child(HSeparator.new())
+	var button_row := HBoxContainer.new()
+	box.add_child(button_row)
+	light_controls.append(_add_button(button_row, "Center on Selected", "Move all three lights so they point at the selected character or prop.", _center_lights_on_selected))
+	_add_button(button_row, "Apply to All Shots", "Give every shot this shot's lighting, so the lighting matches from shot to shot (continuity).", _apply_lighting_to_all_pressed)
+	_select_light_role("key")
+
+
+## Keeps the Lighting panel above the shot strip: on short screens it gets a scroll bar instead of
+## sliding underneath. Checked every frame while open, since other panels above it can open and close.
+func _fit_lighting_panel() -> void:
+	if lighting_panel == null or not lighting_panel.visible:
+		return
+	var want := lighting_box.get_combined_minimum_size().y
+	var top := lighting_scroll.get_global_rect().position.y
+	var bottom := shot_strip.get_global_rect().position.y - 18.0
+	var h := floorf(clampf(bottom - top, minf(want, 140.0), want))
+	if not is_equal_approx(lighting_scroll.custom_minimum_size.y, h):
+		lighting_scroll.custom_minimum_size = Vector2(0, h)
+
+
+## A slider with its label (and value) on the same line. Drags count as one undo step.
+func _add_light_slider(parent: Control, title: String, tip: String, low: float, high: float, step_size: float) -> HSlider:
+	var row := HBoxContainer.new()
+	parent.add_child(row)
+	var title_label := Label.new()
+	title_label.text = title + ":"
+	title_label.tooltip_text = tip
+	title_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	title_label.custom_minimum_size = Vector2(235, 0)
+	title_label.add_theme_font_size_override("font_size", 14)
+	row.add_child(title_label)
+	light_slider_titles[title_label] = title
+	var slider := HSlider.new()
+	slider.min_value = low
+	slider.max_value = high
+	slider.step = step_size
+	slider.tooltip_text = tip
+	slider.focus_mode = Control.FOCUS_NONE
+	slider.custom_minimum_size = Vector2(130, 0)
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slider.set_meta("title_label", title_label)
+	slider.drag_started.connect(func() -> void:
+		light_slider_dragging = true
+		_push_light_undo())
+	slider.drag_ended.connect(func(_changed: bool) -> void: light_slider_dragging = false)
+	row.add_child(slider)
+	light_controls.append(slider)
+	return slider
+
+
+## True when a slider change came from the student (not from the panel updating itself).
+## A click on the slider bar (not a drag) gets its own undo step here.
+func _light_slider_change() -> bool:
+	if lighting_ui_updating:
+		return false
+	if not light_slider_dragging:
+		_push_light_undo()
+	return true
+
+
+func _select_light_role(role: String) -> void:
+	light_role = role
+	var b: Button = light_role_buttons[role]
+	b.button_pressed = true
+	_refresh_lighting_panel()
+
+
+## Shows the active shot's lighting in the panel, and greys out the controls while lighting is locked.
+func _refresh_lighting_panel() -> void:
+	if lighting_panel == null:
+		return
+	lighting_ui_updating = true
+	var setup := _lighting()
+	var locked := _lighting_locked()
+	lighting_title.text = "LIGHTING: SHOT %d" % (active_shot + 1)
+	light_lock_button.text = "Unlock Lighting" if locked else "Lock Lighting"
+	light_lock_button.tooltip_text = "Unlock to change this shot's lighting. Every frame in the shot is relit together, so it stays consistent." if locked \
+		else "Lock this shot's lighting so it can't be changed by accident. It also locks when you capture the shot's first frame."
+	light_lock_label.text = "Locked. Unlock to change it." if locked else "Unlocked: set up your lights."
+	var preset_key := str(setup["preset"])
+	light_preset_button.text = (str(LIGHT_PRESETS[preset_key]["name"]) if LIGHT_PRESETS.has(preset_key) else "Custom") + "..."
+	light_room_slider.value = float(setup["room"])
+	var light: Dictionary = setup["lights"][light_role]
+	light_on_check.button_pressed = light["on"]
+	light_brightness_slider.value = float(light["brightness"])
+	light_temp_slider.value = float(light["temp"])
+	light_gel_option.select(GELS.keys().find(str(light["gel"])))
+	light_height_slider.value = (light["pos"] as Vector3).y
+	for control in light_controls:
+		if control is Slider:
+			(control as Slider).editable = not locked
+		elif control is BaseButton:
+			(control as BaseButton).disabled = locked
+		elif control is OptionButton:
+			(control as OptionButton).disabled = locked
+	_update_light_slider_titles()
+	lighting_ui_updating = false
+
+
+## Slider titles show their values, like "Color temperature: 3200K (warm)".
+func _update_light_slider_titles() -> void:
+	var temp := int(light_temp_slider.value)
+	var feel := "warm" if temp < 4300 else ("cool" if temp > 6000 else "neutral")
+	var values := {
+		light_room_slider: "%d%%" % int(light_room_slider.value),
+		light_brightness_slider: "%d%%" % int(light_brightness_slider.value),
+		light_temp_slider: "%dK (%s)" % [temp, feel],
+		light_height_slider: "%.1f" % light_height_slider.value,
+	}
+	for slider in values:
+		var title_label: Label = (slider as Slider).get_meta("title_label")
+		title_label.text = "%s: %s" % [light_slider_titles[title_label], values[slider]]
 
 
 # ---------------------------------------------------------------- UI
@@ -2624,6 +3365,18 @@ func _make_theme() -> Theme:
 	tip.content_margin_top = 5
 	tip.content_margin_bottom = 5
 	t.set_stylebox("panel", "TooltipPanel", tip)
+
+	# Sliders (Lighting panel): a visible track, filled in the accent color up to the handle.
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.3, 0.31, 0.36)
+	track.set_corner_radius_all(3)
+	track.content_margin_top = 3
+	track.content_margin_bottom = 3
+	var filled := track.duplicate() as StyleBoxFlat
+	filled.bg_color = ACCENT
+	t.set_stylebox("slider", "HSlider", track)
+	t.set_stylebox("grabber_area", "HSlider", filled)
+	t.set_stylebox("grabber_area_highlight", "HSlider", filled)
 	return t
 
 
@@ -2829,6 +3582,15 @@ func _build_ui() -> void:
 	lens_label.mouse_filter = Control.MOUSE_FILTER_STOP
 	cam_flow.add_child(lens_label)
 
+	_add_divider(cam_flow)
+	_add_group_label(cam_flow, "LIGHTS")
+	var lighting_button := _make_button("Lighting", "Set up this shot's key, fill, and back lights, or pick a mood. In Studio View, drag a lamp to move it.")
+	lighting_button.toggle_mode = true
+	lighting_button.toggled.connect(func(on: bool) -> void:
+		lighting_panel.visible = on
+		_refresh_lighting_panel())
+	cam_flow.add_child(lighting_button)
+
 	# ---- Status messages (appear briefly under the toolbar).
 	var status_row := HBoxContainer.new()
 	status_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2866,6 +3628,8 @@ func _build_ui() -> void:
 		+ "Drag empty space, right-drag, or use arrow keys to look around (Studio View).\n" \
 		+ "Camera View (C): pose while looking through the shot camera.\n" \
 		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
+		+ "Lighting: pick a mood, then adjust the key, fill, and back lights. Drag a lamp in Studio View to move it.\n" \
+		+ "    Lighting locks when you capture a shot's first frame, so every frame matches.\n" \
 		+ "Onion skin (O): see faint ghosts of your last 1 or 3 frames.\n" \
 		+ "Space: capture a frame. P: play this shot. Shift+P: play all shots. Ctrl+Z: undo.\n" \
 		+ "Shots (bottom): a shot is one camera setup. + New Shot picks up where this shot left off,\n" \
@@ -2898,6 +3662,9 @@ func _build_ui() -> void:
 	style_box = VBoxContainer.new()
 	style_box.custom_minimum_size = Vector2(230, 0)
 	style_panel.add_child(style_box)
+
+	# ---- Lighting panel (hidden until Lighting is pressed).
+	_build_lighting_panel(column)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -3086,6 +3853,7 @@ func _project_data() -> Dictionary:
 	for i in shots.size():
 		var shot: Dictionary = shots[i]
 		shot_list.append({"label": shot["label"], "frames": shot["poses"],
+			"lighting": shot["lighting"], "light_locked": shot["light_locked"],
 			"working": current if i == active_shot else shot["working"]})
 	return {
 		"app": APP_NAME,
@@ -3195,7 +3963,8 @@ func _apply_project(project: Dictionary) -> void:
 		if typeof(entry_value) != TYPE_DICTIONARY:
 			continue
 		var entry: Dictionary = entry_value
-		var shot := _make_shot(str(entry.get("label", "")).left(SHOT_LABEL_MAX))
+		# Projects from before lighting get the default lighting, locked if the shot has frames.
+		var shot := _make_shot(str(entry.get("label", "")).left(SHOT_LABEL_MAX), _clean_lighting(entry.get("lighting")))
 		var poses: Array[Dictionary] = shot["poses"]
 		for pose in entry.get("frames", []):
 			if typeof(pose) == TYPE_DICTIONARY:
@@ -3203,6 +3972,7 @@ func _apply_project(project: Dictionary) -> void:
 		var working: Variant = entry.get("working", {})
 		if typeof(working) == TYPE_DICTIONARY:
 			shot["working"] = working
+		shot["light_locked"] = bool(entry.get("light_locked", not poses.is_empty()))
 		shots.append(shot)
 	if shots.is_empty():
 		shots.append(_make_shot())
@@ -3217,6 +3987,8 @@ func _apply_project(project: Dictionary) -> void:
 	if not current.is_empty():
 		_apply_pose(current)
 	shots[active_shot]["working"] = {}
+	_apply_lighting(_lighting())
+	_refresh_lighting_panel()
 	shot_label_edit.text = str(shots[active_shot]["label"])
 	_update_shot_title()
 	_update_frame_info()
@@ -3262,6 +4034,8 @@ func _rebuild_frames() -> void:
 	for shot in shots:
 		var poses: Array[Dictionary] = shot["poses"]
 		var textures: Array[ImageTexture] = shot["textures"]
+		_apply_lighting(shot["lighting"])
+		shot["relight"] = false
 		for pose in poses:
 			done += 1
 			busy_label.text = "Rebuilding your frames: %d of %d" % [done, total]
@@ -3269,6 +4043,7 @@ func _rebuild_frames() -> void:
 			await RenderingServer.frame_post_draw
 			textures.append(ImageTexture.create_from_image(_keep_size(shot_viewport.get_texture().get_image())))
 	shot_camera.cull_mask = SHOT_PREVIEW_MASK
+	_apply_lighting(_lighting())
 	capturing = false
 	busy_overlay.visible = false
 	_update_frame_info()
@@ -3288,6 +4063,8 @@ func _new_project() -> void:
 	shots.append(_make_shot())
 	active_shot = 0
 	_bind_active_shot()
+	_apply_lighting(_lighting())
+	_refresh_lighting_panel()
 	shot_label_edit.text = ""
 	_update_shot_title()
 	export_name.text = "my-animation"
@@ -3575,9 +4352,10 @@ func _export() -> void:
 	if web and not _load_export_tools():
 		export_status.text = "Couldn't load the export tools. Try reloading the page."
 		return
-	exporting = true
 	if playing:
 		_stop_playback()
+	await _relight_if_needed()
+	exporting = true
 
 	var pixels := _export_pixels()
 	var frames := _export_frame_list(only_active)
@@ -3609,6 +4387,7 @@ func _export_progress(text: String) -> void:
 ## covers the screen (the scene jumps from frame to frame while this runs), and sets the picture size.
 func _begin_render(pixels: Vector2i) -> void:
 	render_restore = _get_pose()
+	render_lit_shot = -1
 	capturing = true
 	loading = true   # Skips scene list updates while each frame is set up.
 	_set_highlight({})
@@ -3625,8 +4404,10 @@ func _end_render() -> void:
 	shot_viewport.size = SHOT_RENDER_SIZE
 	shot_camera.cull_mask = SHOT_PREVIEW_MASK
 	loading = false
-	_apply_pose(render_restore)
+	if not render_restore.is_empty():
+		_apply_pose(render_restore)
 	render_restore = {}
+	_apply_lighting(_lighting())
 	capturing = false
 	busy_overlay.visible = false
 	_update_ghosts()
@@ -3637,6 +4418,9 @@ func _export_image(shot_index: int, frame_index: int, pixels: Vector2i) -> Image
 	if pixels == FRAME_KEEP_SIZE:
 		var kept: ImageTexture = shots[shot_index]["textures"][frame_index]
 		return kept.get_image()
+	if render_lit_shot != shot_index:
+		_apply_lighting(shots[shot_index]["lighting"])
+		render_lit_shot = shot_index
 	_apply_pose(shots[shot_index]["poses"][frame_index])
 	await RenderingServer.frame_post_draw
 	return shot_viewport.get_texture().get_image()

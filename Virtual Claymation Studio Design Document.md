@@ -78,7 +78,7 @@ Decided after the first tech test (Oct 27). The tech test ran with no errors at 
 | Posing without dragging | Button and keyboard posing in fixed small steps (accessibility, reinforces small increments) | Planned |
 | Character and prop style | Style panel for the selected object: color buttons per part (people: Shirt, Pants, Skin, Hair, Shoes; animals: Fur, Muzzle, Ears; props: Color) with a clay palette including six skin tones, plus hairstyles for people (None, Short, Long, Ponytail, Bun, Curly). Each frame remembers its colors and hair, so restyling mid-shot only affects new frames; Undo covers style changes. Dog and cat bodies are two sections (hips and chest) so the spine can bend | In testing |
 | Moving the shot camera | Locked by default. Camera View tools use real terms (Pan/Tilt, Truck/Pedestal, Dolly, Zoom with a mm lens readout); in Studio View students grab and slide the tripod. Shot size and angle presets, a default camera position, and a warning (not a block) when moved after frames are captured | In testing |
-| Lighting | Key, Fill, and Back lamps per shot, mood presets, and Lock Lighting at first capture. Designed Nov 12; see "Lighting design" below | Next: build |
+| Lighting | Key, Fill, and Back lamps per shot, mood presets, and Lock Lighting at first capture. Designed and built Nov 12; see "Lighting design" below | In testing |
 | Backdrops | Preset backdrops shown as physical backdrops in the studio, plus a Make a Backdrop option using students' own images | Planned |
 | Green screen | A green backdrop option, included as a utility rather than a taught skill | Planned |
 | Export | Zip of numbered frames (PNG default, JPG to save space) and a Premiere package (Final Cut Pro 7 XML + frames + instructions) are built. PNG frames and the Premiere package were tested in Premiere on Windows (Oct 28): the import creates the sequence plus a Frames bin. The package keeps an "experimental" label until it's tested on a class MacBook. MP4 (H.264, 1280 x 720, made by the browser's video encoder through the bundled Mediabunny library) and animated GIF (480 x 270, gifenc) are built and tested in the browser and Premiere (Oct 29); both work in the browser version only. Libraries are bundled in the app (web/vcs-export.js, licenses in web/LICENSES.txt), so no outside servers are needed. Frame rate menu: 12 fps default, plus 10, 15, 24, 30, 60 (Premiere sequence rates, so every export imports cleanly). Audio left out for now; possible later feature. Nov 12: Size menu (Small, 720p default, 1080p, 4K for MP4 only) and one folder per shot; see "Frame memory and export size" | In testing |
@@ -133,10 +133,15 @@ Decided Nov 12, 2026, before building. Today the set has three fixed lights stud
 | Lock Lighting | Lights are free while setting up a shot and lock when its first frame is captured. Unlocking warns that changes will relight all of the shot's frames | Like a real crew locking down before shooting |
 | Left for later | Lighting changes during a shot (a lamp switching off, a lightning flash) | A good story tool, but it brings back flicker and adds complexity |
 
-**To settle while building:**
-- Where lamps aim. Proposal: an aim point saved with the shot's lighting (default: the middle of the table at chest height), with an "Aim at selected" button. Aim must not follow the selection automatically, or clicking a character would relight the shot.
-- Relighting a shot re-makes its kept pictures, like opening a project (a few seconds for a long shot).
-- Check the frame rate on a MacBook and a Chromebook with three lamps and one shadow.
+**Settled while building (Nov 12):**
+- Where lamps aim: an aim point saved with the shot's lighting (default: the middle of the table at chest height). **Center on Selected** moves the whole setup to point at the selected character or prop. The aim never follows clicks on its own, or clicking a character would relight the shot.
+- The lamps are spotlights, so they make a pool of light on the backdrop like real studio lamps (the old key light lit everything evenly). Projects saved before lighting open with Three-Point lighting, so they look a little different from before.
+- Relighting happens when it's needed (before capturing, playing, switching shots, or exporting, and when locking), with a "Relighting Shot 2" progress screen. It doesn't happen on every slider move.
+- Lighting changes can be undone (Ctrl+Z), including a mood preset.
+- The panel opens from **Lighting** in the camera row. On short screens it scrolls so it never covers the shot strip.
+- Preset looks were checked in real renders. Silhouette is a dark figure with a bright outline (a rim-light silhouette); a lit backdrop behind the subject would need the Backdrops feature.
+
+**Still to check:** the frame rate on a MacBook and a Chromebook with three lamps and one shadow (watch the FPS number in the toolbar).
 
 ## Gamified tutorial
 
