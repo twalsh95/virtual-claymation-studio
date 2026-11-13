@@ -77,7 +77,7 @@ Sections are marked with `# ------ name` comment lines:
 ## What's next
 
 1. **Multiple shots** and **frame memory / export size** (Nov 12; see the design document): in testing. The new Premiere package still needs a test in Premiere, and a long project (a few hundred frames) still needs a run on a class MacBook.
-2. **Lighting.** Built Nov 12 (see "Lighting design" in the design document); in testing. Check the frame rate on a MacBook and a Chromebook.
+2. **Lighting.** Built Nov 12, browser-tested Nov 13 (33 to 54 FPS on a MacBook). Still to check: frame rate on a Chromebook.
 3. Backdrops: presets, Make a Backdrop from students' own images, green screen.
 4. Button and keyboard posing in small steps (accessibility).
 5. Tutorial levels.
