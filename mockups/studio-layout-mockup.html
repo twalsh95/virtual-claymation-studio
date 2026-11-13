@@ -113,12 +113,12 @@ kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; bo
 <div class="wrap">
   <header style="display:grid;gap:8px">
     <h1>Studio Layout Mockup</h1>
-    <p>Two ways to organize the studio's controls, so you can compare them before anything changes in the app. <strong>Click around, and try the keys</strong>: number keys 1 to 4 switch tabs in Layout A, letter keys pick tools, and <kbd>?</kbd> shows every key. The 3D scene is a stand-in drawing; the shot panel and shot strip on the right and bottom are the same in both layouts.</p>
+    <p><strong>Layout A, department tabs, is the chosen direction.</strong> Try the toolbar sizes: the <strong>Minimize</strong> button at the right end (or <kbd>H</kbd>) shrinks the toolbar to just its tabs, then hides it, then brings it back. <strong>Click around, and try the keys</strong>: number keys 1 to 4 switch tabs, letter keys pick tools, and <kbd>?</kbd> shows every key. The 3D scene is a stand-in drawing; the shot panel and shot strip on the right and bottom are the same in both layouts.</p>
   </header>
 
   <div class="switch" role="group" aria-label="Choose a layout">
-    <button id="pickA" aria-pressed="true">Layout A: Department tabs</button>
-    <button id="pickB" aria-pressed="false">Layout B: One toolbar, tidied</button>
+    <button id="pickA" aria-pressed="true">Layout A: Department tabs (chosen)</button>
+    <button id="pickB" aria-pressed="false">Layout B: One toolbar (not chosen)</button>
   </div>
 
   <div class="stage-holder" id="holder">
@@ -164,7 +164,7 @@ kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; bo
   "use strict";
   // ---- Draft key map (shared by the overlay, the table below, and the key handling).
   var KEYS = [
-    ["Everywhere", [["1 2 3 4", "Switch tab: Animate, Camera, Set, Lights (Layout A)"], ["Space", "Capture frame"], ["P / Shift+P", "Play this shot / play all shots"], ["Ctrl+Z", "Undo"], ["C", "Studio View / Camera View"], ["O", "Onion skin: off, 1, 3 frames"], ["N", "New shot"], [", and .", "Previous / next shot"], ["Tab / Shift+Tab", "Select next / previous character or prop"], ["[ and ]", "Select previous / next body part"], ["Arrow keys", "Nudge the selected part with the current tool, one small step (Shift: bigger step)"], ["Alt+Arrows", "Look around the studio (Studio View)"], ["+ and -", "View in / out"], ["V", "Reset view"], ["Delete", "Remove the selected character or prop"], ["Esc", "Close a menu or panel"], ["?", "Show all keys"]]],
+    ["Everywhere", [["1 2 3 4", "Switch tab: Animate, Camera, Set, Lights (Layout A)"], ["Space", "Capture frame"], ["P / Shift+P", "Play this shot / play all shots"], ["Ctrl+Z", "Undo"], ["C", "Studio View / Camera View"], ["O", "Onion skin: off, 1, 3 frames"], ["N", "New shot"], [", and .", "Previous / next shot"], ["Tab / Shift+Tab", "Select next / previous character or prop"], ["[ and ]", "Select previous / next body part"], ["Arrow keys", "Nudge the selected part with the current tool, one small step (Shift: bigger step)"], ["Alt+Arrows", "Look around the studio (Studio View)"], ["+ and -", "View in / out"], ["V", "Reset view"], ["Delete", "Remove the selected character or prop"], ["H", "Toolbar size: full, minimized, hidden"], ["Esc", "Close a menu or panel"], ["?", "Show all keys"]]],
     ["Animate tab", [["B T M U Q", "Bend, Twist, Move, Lift, Squash"], ["A", "Add a character or prop (menu)"], ["S", "Style the selected character or prop"], ["R", "Reset pose"]]],
     ["Camera tab", [["L", "Lock / unlock the camera"], ["G T K D Z", "Move Tripod, Pan/Tilt, Truck/Pedestal, Dolly, Zoom"], ["F", "Next shot size: wide, medium, close-up"], ["A", "Next angle: high, eye level, low"], ["R", "Reset camera"]]],
     ["Set and Lights tabs", [["Arrow keys", "Move around the panel's choices (like a controller would)"], ["Enter", "Choose the highlighted option"], ["K F B G", "Lights tab: pick the Key, Fill, Back, or Background light"], ["M", "Lights tab: next mood"]]],
@@ -173,7 +173,9 @@ kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; bo
 
   var TAB_COLORS = { animate: "#4cd65a", camera: "#ff4038", set: "#c58bff", lights: "#5a9aff" };
   var TOOL_COLORS = { Bend: "#4cd65a", Twist: "#ffd933", Move: "#b373ff", Lift: "#ececf2", Squash: "#ff80cc" };
-  var state = { layout: "A", tab: "animate", tool: "Bend", camTool: "Pan / Tilt", menu: null, keys: false, cameraLocked: true };
+  var state = { layout: "A", tab: "animate", tool: "Bend", camTool: "Pan / Tilt", menu: null, keys: false, cameraLocked: true, bar: "full" };
+  var BAR_NEXT = { full: "compact", compact: "hidden", hidden: "full" };
+  var BAR_LABEL = { full: "Minimize", compact: "Hide" };
 
   var ui = document.getElementById("ui");
   var stage = document.getElementById("stage");
@@ -278,12 +280,24 @@ kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; bo
     var bar = tabs.map(function (t) {
       return '<button type="button" class="tab' + (state.tab === t[0] ? " on" : "") + '" style="--tabcolor:' + TAB_COLORS[t[0]] + '" data-act="tab:' + t[0] + '" title="' + t[3] + '">' + t[1] + k(t[2]) + '</button>';
     }).join("");
+    var rest = projectMenu(state.menu === "project") + shotStrip() + shotPanel() + toastEl() + keysEl();
+    if (state.bar === "hidden") {
+      // Only a small tab in the corner; everything else is the scene.
+      ui.innerHTML = '<div style="position:absolute;left:12px;top:12px">' + btn("Show toolbar", "H", "", "bar:full") + '</div>' + rest;
+      return;
+    }
+    var sizeButton = btn(BAR_LABEL[state.bar], "H", "", "bar:" + BAR_NEXT[state.bar]);
+    var right = btn("Studio View", "C", "", "toast:Switched to Camera View.") + btn("Project ▾", "", state.menu === "project" ? "on" : "", "menu:project") + btn("?", "", "", "keys") + sizeButton;
+    if (state.bar === "compact") {
+      // Just the tabs and the mode light. Picking a tab opens the toolbar again.
+      ui.innerHTML = '<div class="tabs"><div class="tabbar"><div class="panel" style="border-radius:8px 8px 0 0;padding:8px 12px">' + modeLight() + '</div>' + bar +
+        '<span class="spacer"></span>' + right + '</div></div>' + rest;
+      return;
+    }
     ui.innerHTML =
-      '<div class="tabs"><div class="tabbar">' + bar + '<span class="spacer"></span>' +
-      btn(state.layout === "A" ? "Studio View" : "", "C", "", "toast:Switched to Camera View.") + btn("Project ▾", "", state.menu === "project" ? "on" : "", "menu:project") + btn("?", "", "", "keys") + '</div>' +
+      '<div class="tabs"><div class="tabbar">' + bar + '<span class="spacer"></span>' + right + '</div>' +
       '<div class="toolrow panel row">' + modeLight() + '<span class="sep"></span>' + c.row + '</div></div>' +
-      '<div class="sidepanel">' + c.side + '</div>' +
-      projectMenu(state.menu === "project") + shotStrip() + shotPanel() + toastEl() + keysEl();
+      '<div class="sidepanel">' + c.side + '</div>' + rest;
   }
 
   // ---- Layout B: one toolbar with menus
@@ -336,7 +350,12 @@ kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; bo
     var parts = a.split(":");
     var kind = parts.shift();
     var arg = parts.join(":");
-    if (kind === "tab") { state.tab = arg; state.menu = null; render(); return; }
+    if (kind === "tab") { state.tab = arg; state.menu = null; state.bar = "full"; render(); return; }
+    if (kind === "bar") {
+      state.bar = arg; state.menu = null; render();
+      toast(arg === "full" ? "Toolbar: full" : arg === "compact" ? "Toolbar minimized. Pick a tab to open it." : "Toolbar hidden. Press H to show it.");
+      return;
+    }
     if (kind === "tool") { state.tool = arg; render(); toast(arg + " tool"); return; }
     if (kind === "cam") { state.camTool = arg; render(); toast(arg + ": drag in the scene"); return; }
     if (kind === "lock") { state.cameraLocked = !state.cameraLocked; render(); toast(state.cameraLocked ? "Camera locked." : "Camera unlocked."); return; }
@@ -357,6 +376,7 @@ kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; bo
     var key = e.key;
     if (key === "?") { act("keys"); return; }
     if (key === "Escape") { state.keys = false; state.menu = null; render(); return; }
+    if (state.layout === "A" && key.toUpperCase() === "H") { act("bar:" + BAR_NEXT[state.bar]); return; }
     if (state.layout === "A" && "1234".indexOf(key) >= 0 && key.length === 1) {
       act("tab:" + ["animate", "camera", "set", "lights"][Number(key) - 1]); e.preventDefault(); return;
     }
