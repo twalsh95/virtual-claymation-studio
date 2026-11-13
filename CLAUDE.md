@@ -81,7 +81,6 @@ Sections are marked with `# ------ name` comment lines:
 2. **Lighting.** Built Nov 12, browser-tested Nov 13 (33 to 54 FPS on a MacBook). Still to check: frame rate on a Chromebook.
 3. **Backdrops** and the **Background light.** Built Nov 13 (see "Backdrop design" in the design document); in testing.
 4. **UI pass and controls** (Tom, Nov 13): declutter the layout, a key for every control, controller-ready. Design with Tom first; it absorbs keyboard posing in small steps (accessibility). Then **Sets** (three-wall sitcom sets).
-5. Button and keyboard posing in small steps: now part of the UI pass.
 5. Tutorial levels.
 6. Platform sign-in and cloud saves (Walsh Classroom platform; waits on the student data review).
 7. Test the live site and the Premiere package on a class MacBook.
