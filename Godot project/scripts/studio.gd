@@ -185,7 +185,105 @@ const MODE_INFO := {
 	"squash": ["SQUASH", Color(1.0, 0.5, 0.8)],
 	"camera": ["CAMERA", Color(1.0, 0.25, 0.22)],
 	"light": ["LIGHT", Color(0.35, 0.6, 1.0)],
+	"set": ["SET", Color(0.75, 0.5, 1.0)],
 }
+
+# Department tabs: [name, key, tooltip (names the crew job)].
+const TABS := ["animate", "camera", "set", "lights"]
+const TAB_INFO := {
+	"animate": ["Animate", "1", "The animator's tools: pose characters and props, one small change per frame."],
+	"camera": ["Camera", "2", "The camera operator's tools: frame the shot and move the camera."],
+	"set": ["Set", "3", "The set designer's tools: the backdrop and floor for this shot."],
+	"lights": ["Lights", "4", "The gaffer's tools: light the set and set the mood."],
+}
+# Every key the studio uses, as named actions: [action, keys, what it does, tab ("" = every tab)].
+# Keys only work in their own tab, so a letter can mean different things in different tabs.
+# Order matters: an action with Shift comes before the same key without it.
+# A game controller can later be mapped onto these same actions.
+const ACTIONS := [
+	["tab_animate", ["1"], "Animate tab", ""],
+	["tab_camera", ["2"], "Camera tab", ""],
+	["tab_set", ["3"], "Set tab", ""],
+	["tab_lights", ["4"], "Lights tab", ""],
+	["toolbar_size", ["H"], "Toolbar size: full, minimized, hidden", ""],
+	["capture", ["Space"], "Capture a frame", ""],
+	["play_all", ["Shift+P"], "Play all shots", ""],
+	["play", ["P"], "Play this shot", ""],
+	["undo", ["Ctrl+Z"], "Undo", ""],
+	["toggle_view", ["C"], "Studio View / Camera View", ""],
+	["onion", ["O"], "Onion skin: off, 1 frame, 3 frames", ""],
+	["frame_rate", ["Shift+F"], "Next frame rate", ""],
+	["delete_frame", ["Shift+Backspace"], "Delete the last frame", ""],
+	["new_shot", ["N"], "New shot", ""],
+	["move_shot_earlier", ["Shift+Comma", "Shift+Less"], "Move this shot earlier", ""],
+	["move_shot_later", ["Shift+Period", "Shift+Greater"], "Move this shot later", ""],
+	["prev_shot", ["Comma"], "Go to the previous shot", ""],
+	["next_shot", ["Period"], "Go to the next shot", ""],
+	["label_shot", ["F2"], "Label this shot", ""],
+	["delete_shot", ["Shift+Delete"], "Delete this shot", ""],
+	["prev_figure", ["Shift+Tab"], "Select the previous character or prop", ""],
+	["next_figure", ["Tab"], "Select the next character or prop", ""],
+	["prev_part", ["BracketLeft"], "Select the previous body part", ""],
+	["next_part", ["BracketRight"], "Select the next body part", ""],
+	["look_left", ["Alt+Left"], "Look around (Studio View): Alt + arrow keys", ""],
+	["look_right", ["Alt+Right"], "", ""],
+	["look_up", ["Alt+Up"], "", ""],
+	["look_down", ["Alt+Down"], "", ""],
+	["nudge_left", ["Left", "Shift+Left"], "Arrow keys: move the selected part one small step with the current tool (Shift: bigger step). In the Camera tab, they move the camera", ""],
+	["nudge_right", ["Right", "Shift+Right"], "", ""],
+	["nudge_up", ["Up", "Shift+Up"], "", ""],
+	["nudge_down", ["Down", "Shift+Down"], "", ""],
+	["view_in", ["Equal", "Shift+Equal", "Shift+Plus", "Kp Add"], "View in (Studio View)", ""],
+	["view_out", ["Minus", "Kp Subtract"], "View out (Studio View)", ""],
+	["reset_view", ["V"], "Reset the Studio View", ""],
+	["remove", ["Delete", "Backspace"], "Remove the selected character or prop", ""],
+	["save", ["Ctrl+S"], "Save project", ""],
+	["open", ["Ctrl+O"], "Open project", ""],
+	["export", ["Ctrl+E"], "Export", ""],
+	["new_project", ["Ctrl+Shift+N"], "New project", ""],
+	["how_to", ["Shift+Slash", "Shift+Question", "Slash", "F1"], "How To and all keys", ""],
+	["leave_panel", ["Escape"], "Leave a panel, close How To", ""],
+	["tool_bend", ["B"], "Bend", "animate"],
+	["tool_twist", ["T"], "Twist", "animate"],
+	["tool_move", ["M"], "Move", "animate"],
+	["tool_lift", ["U"], "Lift", "animate"],
+	["tool_squash", ["Q"], "Squash", "animate"],
+	["add_prop", ["Shift+A"], "Add a prop", "animate"],
+	["add_character", ["A"], "Add a character", "animate"],
+	["style", ["S"], "Style panel (colors and hair)", "animate"],
+	["scene_list", ["I"], "Scene list (what's in the scene)", "animate"],
+	["default_pose", ["Shift+R"], "Set as default pose", "animate"],
+	["reset_pose", ["R"], "Reset pose", "animate"],
+	["lock_camera", ["L"], "Lock or unlock the camera", "camera"],
+	["tool_tripod", ["G"], "Move Tripod", "camera"],
+	["tool_pan", ["T"], "Pan / Tilt", "camera"],
+	["tool_truck", ["K"], "Truck / Pedestal", "camera"],
+	["tool_dolly", ["D"], "Dolly", "camera"],
+	["tool_zoom", ["Z"], "Zoom", "camera"],
+	["shot_size", ["F"], "Next shot size: wide, medium, close-up", "camera"],
+	["shot_angle", ["A"], "Next angle: high, eye level, low", "camera"],
+	["camera_default", ["Shift+R"], "Set camera default", "camera"],
+	["reset_camera", ["R"], "Reset camera", "camera"],
+	["make_backdrop", ["M"], "Make a Backdrop from your own picture", "set"],
+	["green_screen", ["G"], "Green screen backdrop", "set"],
+	["next_floor", ["F"], "Next floor", "set"],
+	["lock_lighting", ["L"], "Lock or unlock lighting", "lights"],
+	["light_key", ["K"], "Choose the key light", "lights"],
+	["light_fill", ["F"], "Choose the fill light", "lights"],
+	["light_back", ["B"], "Choose the back light", "lights"],
+	["light_bg", ["G"], "Choose the background light", "lights"],
+	["light_on", ["X"], "Turn the chosen light on or off", "lights"],
+	["next_mood", ["M"], "Next mood", "lights"],
+	["lights_all_shots", ["Shift+A"], "Give every shot this lighting", "lights"],
+	["center_lights", ["S"], "Center the lights on the selected character or prop", "lights"],
+]
+# Actions that repeat while their key is held down.
+const REPEATING_ACTIONS := ["nudge_left", "nudge_right", "nudge_up", "nudge_down", "view_in", "view_out"]
+const NUDGE_ANGLE := 0.07      # radians per arrow press (about 4 degrees)
+const NUDGE_DISTANCE := 0.03   # table units per arrow press
+const NUDGE_BIG := 4.0         # Shift makes steps this much bigger
+const SHOT_SIZES := ["wide", "medium", "close"]
+const SHOT_ANGLES := [30.0, 3.0, -15.0]
 const TOOL_NAMES := {
 	"bend": "Bend", "twist": "Twist", "move": "Move", "lift": "Lift", "squash": "Squash",
 	"tripod": "Move Tripod", "pan": "Pan / Tilt", "truck": "Truck / Pedestal", "dolly": "Dolly", "zoom": "Zoom",
@@ -337,7 +435,27 @@ var flash_rect: ColorRect
 var camera_backdrop: ColorRect   # Dark background behind the camera screen in Camera View.
 var camera_border: ColorRect
 var camera_screen: TextureRect   # The shot camera's picture, fitted into the open space in Camera View.
-var toolbar: PanelContainer
+var toolbar: VBoxContainer         # The tab bar and the active tab's tool row.
+var tool_row_panel: PanelContainer
+var tool_rows: Dictionary = {}     # tab -> its row of tools
+var tab_buttons: Dictionary = {}
+var current_tab := "animate"
+var toolbar_size := "full"         # "full", "compact" (tab bar only), or "hidden"
+var toolbar_size_button: Button
+var show_toolbar_button: Button
+var view_toggle_button: Button
+var project_menu: MenuButton
+var add_character_menu: MenuButton
+var add_prop_menu: MenuButton
+var style_button: Button
+var list_button: Button
+var help_overlay: Control
+var how_to_scroll: ScrollContainer
+var style_open := false
+var scene_list_open := false
+var last_pose_tool := "bend"
+var last_camera_tool := "pan"
+var selected_part: Dictionary = {}  # The body part keyboard posing works on.
 var shot_panel: PanelContainer
 var help_panel: PanelContainer
 var play_button: Button
@@ -416,9 +534,11 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	toolbar.resized.connect(_on_viewport_resized)
 	shot_panel.resized.connect(_on_viewport_resized)
+	_setup_actions()
 	_set_tool("bend")
 	_set_onion_layers(1)
 	_set_camera_locked(true)
+	_set_tab("animate")
 	_set_view(false)
 	_sync_camera()
 	# No status message at startup.
@@ -1090,6 +1210,7 @@ func _refresh_style_panel(force: bool = false) -> void:
 	note.add_theme_font_size_override("font_size", 12)
 	note.add_theme_color_override("font_color", Color(0.65, 0.67, 0.72))
 	style_box.add_child(note)
+	_make_keyboard_reachable(style_box)
 
 
 ## Keeps the color picker simple: the clay palette first, a color wheel, no advanced controls.
@@ -1138,8 +1259,8 @@ func _remove_figure(figure: Dictionary) -> void:
 func _select_figure(figure: Dictionary) -> void:
 	selected_figure = figure
 	var figure_parts: Array = figure["parts"]
-	if not figure_parts.is_empty():
-		_set_highlight(figure_parts[0])
+	selected_part = figure_parts[0] if not figure_parts.is_empty() else {}
+	_set_highlight(selected_part)
 	_update_selected_label()
 
 
@@ -1147,6 +1268,8 @@ func _select_figure(figure: Dictionary) -> void:
 func _clear_stale_selection() -> void:
 	if not selected_figure.is_empty() and not (selected_figure["root"] as Node3D).visible:
 		selected_figure = {}
+	if selected_figure.is_empty() or not (selected_figure["parts"] as Array).has(selected_part):
+		selected_part = {}
 	_set_highlight({})
 	hovered = {}
 	active_part = {}
@@ -1157,7 +1280,12 @@ func _update_selected_label() -> void:
 	if selected_label == null:
 		return
 	_refresh_style_panel()
-	selected_label.text = "Selected: none" if selected_figure.is_empty() else "Selected: %s" % selected_figure["name"]
+	if selected_figure.is_empty():
+		selected_label.text = "Selected: none (Tab)"
+	elif not selected_part.is_empty() and (selected_figure["parts"] as Array).has(selected_part) and (selected_figure["parts"] as Array).size() > 1:
+		selected_label.text = "Selected: %s, %s" % [selected_figure["name"], str(selected_part["name"]).to_lower()]
+	else:
+		selected_label.text = "Selected: %s" % selected_figure["name"]
 
 
 func _refresh_scene_list() -> void:
@@ -1178,6 +1306,7 @@ func _refresh_scene_list() -> void:
 		remove.pressed.connect(func() -> void: _confirm("Remove %s from the scene? You can bring it back with Undo." % figure["name"], func() -> void: _remove_figure(figure)))
 		row.add_child(remove)
 		scene_list_box.add_child(row)
+	_make_keyboard_reachable(scene_list_box)
 	_update_selected_label()
 
 
@@ -1493,9 +1622,8 @@ func _set_view(through_camera: bool) -> void:
 		camera_screen.visible = camera_view
 		preview.visible = not camera_view
 		_update_shot_title()
-		var key := "camera" if camera_view else "studio"
-		var b: Button = view_buttons[key]
-		b.button_pressed = true
+		# The button names the view it switches to.
+		view_toggle_button.text = "Studio View (C)" if camera_view else "Camera View (C)"
 		_layout_camera_screen.call_deferred()
 
 
@@ -1504,7 +1632,7 @@ func _layout_camera_screen() -> void:
 	if not camera_view or camera_screen == null:
 		return
 	var vs := get_viewport().get_visible_rect().size
-	var top := toolbar.get_global_rect().end.y + 8.0
+	var top := _ui_top()
 	var bottom := shot_panel.get_global_rect().position.y - 8.0
 	var left := 10.0
 	var right := vs.x - 10.0
@@ -1534,7 +1662,7 @@ func _fit_shot_preview() -> void:
 	if preview == null:
 		return
 	var vs := get_viewport().get_visible_rect().size
-	var room := vs.y - 10.0 - (toolbar.get_global_rect().end.y + 8.0)
+	var room := vs.y - 10.0 - _ui_top()
 	var rest := shot_panel.size.y - preview.size.y
 	var h := floorf(clampf(room - rest, PREVIEW_MIN_HEIGHT, PREVIEW_MAX_HEIGHT))
 	var fitted := Vector2(roundf(h * SHOT_ASPECT), h)
@@ -1679,10 +1807,13 @@ func _set_camera_locked(locked: bool) -> void:
 	if lock_button != null:
 		lock_button.set_pressed_no_signal(not locked)
 		lock_button.text = "Unlock Camera" if locked else "Lock Camera"
+	# Locked camera buttons stay readable (just dimmer) instead of looking broken; pressing one explains the lock.
 	for b in camera_controls:
-		b.disabled = locked
+		b.modulate.a = 0.55 if locked else 1.0
 	if locked and current_tool in CAMERA_TOOLS:
-		_set_tool("bend")
+		_set_tool(last_pose_tool)
+	elif not locked and current_tab == "camera" and current_tool in POSE_TOOLS:
+		_set_tool(last_camera_tool)
 	if status_label != null:
 		_flash_status("Camera locked. It can't be moved by accident." if locked
 			else "Camera unlocked. Use the camera tools, or grab the tripod in Studio View.")
@@ -1862,46 +1993,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					_grab_light_to(mm.position)
 				"orbit":
 					_orbit(mm.relative)
-				"pan", "truck", "dolly", "zoom":
+				"tripod", "pan", "truck", "dolly", "zoom":
 					_camera_drag(mm.relative)
 		else:
 			_update_hover(mm.position)
 
 	elif event is InputEventKey:
-		var k := event as InputEventKey
-		if k.pressed and not k.echo:
-			if k.keycode == KEY_Z and (k.ctrl_pressed or k.meta_pressed):
-				_undo()
-				return
-			match k.keycode:
-				KEY_SPACE:
-					_capture_frame()
-				KEY_P:
-					_toggle_playback(k.shift_pressed)
-				KEY_B:
-					_set_tool("bend")
-				KEY_T:
-					_set_tool("twist")
-				KEY_M:
-					_set_tool("move")
-				KEY_U:
-					_set_tool("lift")
-				KEY_Q:
-					_set_tool("squash")
-				KEY_DELETE, KEY_BACKSPACE:
-					_remove_selected()
-				KEY_C:
-					_toggle_view()
-				KEY_O:
-					_cycle_onion_layers()
-				KEY_V:
-					_reset_view()
-				KEY_L:
-					_set_camera_locked(not camera_locked)
-				KEY_EQUAL, KEY_PLUS, KEY_KP_ADD:
-					_view_zoom(0.85, 1.0)
-				KEY_MINUS, KEY_KP_SUBTRACT:
-					_view_zoom(1.15, 1.0)
+		# Every key is a named action (see ACTIONS at the top).
+		if _handle_key(event):
+			get_viewport().set_input_as_handled()
 
 
 func _begin_drag(screen_pos: Vector2) -> void:
@@ -1968,6 +2068,7 @@ func _begin_drag(screen_pos: Vector2) -> void:
 	active_part = part
 	grab_figure = figure
 	selected_figure = figure
+	selected_part = part
 	_update_selected_label()
 	_set_highlight(part)
 	drag_mode = current_tool
@@ -2049,7 +2150,8 @@ func _update_hover(screen_pos: Vector2) -> void:
 		_set_lamp_glow(lamp_role)
 	if not is_same(part, hovered):
 		hovered = part
-		_set_highlight(part)
+		# With nothing under the cursor, the part picked with the keyboard stays lit.
+		_set_highlight(part if not part.is_empty() else selected_part)
 	if over_camera or over_lamp or not part.is_empty():
 		Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND)
 	else:
@@ -2352,6 +2454,10 @@ func _set_tool(tool_name: String) -> void:
 		_flash_status("Unlock the camera (L) to use the camera tools.")
 		tool_name = current_tool if current_tool in POSE_TOOLS else "bend"
 	current_tool = tool_name
+	if tool_name in POSE_TOOLS:
+		last_pose_tool = tool_name
+	elif tool_name in CAMERA_TOOLS:
+		last_camera_tool = tool_name
 	if tool_buttons.has(tool_name):
 		var b: Button = tool_buttons[tool_name]
 		b.button_pressed = true
@@ -2365,8 +2471,10 @@ func _update_indicator() -> void:
 	var mode := current_tool
 	if current_tool in CAMERA_TOOLS or drag_mode == "grab_camera":
 		mode = "camera"
-	elif drag_mode == "grab_light":
+	elif drag_mode == "grab_light" or (current_tab == "lights" and not dragging):
 		mode = "light"
+	elif current_tab == "set" and not dragging:
+		mode = "set"
 	var info: Array = MODE_INFO[mode]
 	var color: Color = info[1]
 	indicator_style.bg_color = color
@@ -2532,8 +2640,8 @@ func _process(delta: float) -> void:
 		cursor_label.text = label_text
 		cursor_label.position = get_viewport().get_mouse_position() + Vector2(18, 14)
 
-	# Arrow keys look around, unless the student is typing in a text box.
-	if not camera_view and not (get_viewport().gui_get_focus_owner() is LineEdit):
+	# Alt + arrow keys look around (plain arrows move the selected part), unless the student is typing.
+	if not camera_view and Input.is_key_pressed(KEY_ALT) and not (get_viewport().gui_get_focus_owner() is LineEdit):
 		var turn := 0.0
 		var tilt := 0.0
 		if Input.is_key_pressed(KEY_LEFT):
@@ -2901,7 +3009,8 @@ func _build_lamp_model(role: String) -> Dictionary:
 	var label := Label3D.new()
 	label.text = LIGHT_INFO[role][1]
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.no_depth_test = true
+	label.no_depth_test = false   # Characters in front of a lamp hide its label.
+	label.visible = false         # Shown in the Lights tab (see _set_tab).
 	label.font_size = 40
 	label.outline_size = 8
 	label.pixel_size = 0.004
@@ -3273,7 +3382,7 @@ func _build_lighting_panel(parent: Control) -> void:
 	light_on_check.text = "On"
 	light_on_check.focus_mode = Control.FOCUS_NONE
 	light_on_check.tooltip_text = "Turn this light on or off. Some moods use only one or two lights."
-	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
 		light_on_check.add_theme_stylebox_override(state, StyleBoxEmpty.new())
 	for state in ["font_pressed_color", "font_hover_pressed_color"]:
 		light_on_check.add_theme_color_override(state, Color(0.95, 0.95, 0.97))
@@ -4156,7 +4265,597 @@ func _refresh_backdrop_panel() -> void:
 		(backdrop_buttons[key] as Button).button_pressed = key == current
 	remove_picture_button.disabled = not current.begins_with("picture:")
 	floor_option.select(FLOORS.keys().find(str(_shot_set()["floor"])))
+	_make_keyboard_reachable(picture_grid)
 	backdrop_ui_updating = false
+
+
+# ---------------------------------------------------------------- tabs, toolbar sizes, and keys
+# The toolbar has a tab per crew job (ACTIONS and TAB_INFO at the top). Every key is a named action
+# in Godot's InputMap, built from ACTIONS, so a game controller can be added to the same actions later.
+
+func _make_tool_row(parent: Control, tab: String) -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	parent.add_child(row)
+	tool_rows[tab] = row
+	return row
+
+
+func _add_tab_hint(parent: Control, text: String) -> void:
+	var hint := Label.new()
+	hint.text = text
+	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(hint)
+
+
+## A button that opens a menu of actions. items: [[label, Callable], ...]
+func _make_action_menu(text: String, tip: String, items: Array) -> MenuButton:
+	var mb := MenuButton.new()
+	mb.text = text + "..."
+	mb.tooltip_text = tip
+	mb.flat = false
+	mb.focus_mode = Control.FOCUS_NONE
+	var popup := mb.get_popup()
+	popup.theme = ui_theme
+	for i in items.size():
+		popup.add_item(str(items[i][0]), i)
+	popup.id_pressed.connect(func(index: int) -> void: (items[index][1] as Callable).call())
+	return mb
+
+
+## Switches the department tab: its tools show, and drags use its kind of tool.
+func _set_tab(tab: String) -> void:
+	current_tab = tab
+	(tab_buttons[tab] as Button).button_pressed = true
+	for t in tool_rows:
+		(tool_rows[t] as Control).visible = t == tab
+	# Lamp labels only show where lights are worked on, so they don't sit on top of the characters.
+	for role in lamp_models:
+		(lamp_models[role]["label"] as Label3D).visible = tab == "lights"
+	# Drags follow the tab: camera moves only in Camera (once it's unlocked), posing everywhere else.
+	if tab != "camera" and current_tool in CAMERA_TOOLS:
+		_set_tool(last_pose_tool)
+	elif tab == "camera" and not camera_locked and current_tool in POSE_TOOLS:
+		_set_tool(last_camera_tool)
+	# Picking a tab opens a minimized or hidden toolbar again.
+	if toolbar_size != "full":
+		_set_toolbar_size("full")
+	_update_side_panels()
+	_update_indicator()
+
+
+func _cycle_toolbar_size() -> void:
+	_set_toolbar_size({"full": "compact", "compact": "hidden", "hidden": "full"}[toolbar_size])
+
+
+func _set_toolbar_size(size_name: String) -> void:
+	toolbar_size = size_name
+	toolbar.visible = size_name != "hidden"
+	tool_row_panel.visible = size_name == "full"
+	show_toolbar_button.visible = size_name == "hidden"
+	toolbar_size_button.text = "Minimize (H)" if size_name == "full" else "Hide (H)"
+	toolbar_size_button.tooltip_text = "Make the toolbar smaller: just the tabs. (H)" if size_name == "full" \
+		else "Hide the toolbar for the most room to see your scene. H brings it back."
+	_update_side_panels()
+	_on_viewport_resized()
+
+
+## Shows the panels that belong to the current tab (when the toolbar is full size).
+func _update_side_panels() -> void:
+	if backdrop_panel == null or lighting_panel == null:
+		return
+	var full := toolbar_size == "full"
+	var style_was_visible := style_panel.visible
+	scene_list_panel.visible = full and current_tab == "animate" and scene_list_open
+	style_panel.visible = full and current_tab == "animate" and style_open
+	backdrop_panel.visible = full and current_tab == "set"
+	lighting_panel.visible = full and current_tab == "lights"
+	if style_panel.visible and not style_was_visible:
+		_refresh_style_panel(true)
+	if backdrop_panel.visible:
+		_refresh_backdrop_panel()
+	if lighting_panel.visible:
+		_refresh_lighting_panel()
+	style_button.set_pressed_no_signal(style_open)
+	list_button.set_pressed_no_signal(scene_list_open)
+
+
+## The top of the space below the toolbar (or below the Show Toolbar button when it's hidden).
+func _ui_top() -> float:
+	if toolbar.visible:
+		return toolbar.get_global_rect().end.y + 8.0
+	return show_toolbar_button.get_global_rect().end.y + 8.0
+
+
+func _new_project_pressed() -> void:
+	_confirm("Start a new project? Your current animation will be replaced. Save it first if you want to keep it.", _new_project)
+
+
+func _open_project_pressed() -> void:
+	_confirm("Open a project? Your current animation will be replaced. Save it first if you want to keep it.", _open_project)
+
+
+## Opens or closes the Export panel. focus: also move the keyboard into it.
+func _toggle_export_panel(focus: bool) -> void:
+	export_panel.visible = not export_panel.visible
+	if export_panel.visible and focus:
+		_focus_panel(export_panel)
+
+
+func _next_floor() -> void:
+	var keys: Array = FLOORS.keys()
+	_choose_floor(str(keys[(keys.find(str(_shot_set()["floor"])) + 1) % keys.size()]))
+
+
+func _next_mood() -> void:
+	var keys: Array = LIGHT_PRESETS.keys()
+	var at := keys.find(str(_lighting()["preset"]))
+	_apply_light_preset(str(keys[(at + 1) % keys.size()]))
+
+
+# ---- How To window
+
+func _build_how_to(layer: CanvasLayer) -> void:
+	# The studio dims behind the window, so the text is easy to read. Clicking the dim area closes it.
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.theme = ui_theme
+	dim.visible = false
+	dim.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+			_toggle_how_to())
+	layer.add_child(dim)
+	help_overlay = dim
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dim.add_child(center)
+	help_panel = PanelContainer.new()
+	help_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var solid := StyleBoxFlat.new()
+	solid.bg_color = Color(0.1, 0.1, 0.12)
+	solid.set_corner_radius_all(8)
+	solid.set_content_margin_all(14)
+	help_panel.add_theme_stylebox_override("panel", solid)
+	center.add_child(help_panel)
+	how_to_scroll = ScrollContainer.new()
+	var scroll := how_to_scroll
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(920, 540)   # Fitted to the window each time it opens.
+	help_panel.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(box)
+	var top := HBoxContainer.new()
+	box.add_child(top)
+	var title := Label.new()
+	title.text = "HOW TO USE THE STUDIO"
+	title.add_theme_font_size_override("font_size", 18)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(title)
+	_add_button(top, "Close (Esc)", "Close How To.", _toggle_how_to)
+	var tips := Label.new()
+	tips.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tips.text = "The tabs across the top are the jobs on a film crew. Animate poses characters and props. Camera frames and moves the shot. " \
+		+ "Set picks the backdrop and floor. Lights sets up the lighting. Hover over any button to see what it does.\n" \
+		+ "Capture a frame (Space), make a small change, capture again. Play (P) shows your animation. Onion skin (O) shows faint ghosts of your last frames.\n" \
+		+ "A shot is one camera setup. + New Shot picks up where this shot left off, so you can change the angle and keep the action going.\n" \
+		+ "Lighting locks when you capture a shot's first frame, so every frame matches. Your work autosaves in this browser; Save Project makes a file you can open anywhere.\n" \
+		+ "Every control has a key, listed below. In the Set and Lights tabs, arrow keys move around the panel and Enter picks. Esc leaves a panel."
+	box.add_child(tips)
+	var groups := HFlowContainer.new()
+	groups.add_theme_constant_override("h_separation", 24)
+	groups.add_theme_constant_override("v_separation", 12)
+	box.add_child(groups)
+	for group in [["", "EVERY TAB"], ["animate", "ANIMATE TAB"], ["camera", "CAMERA TAB"], ["set", "SET TAB"], ["lights", "LIGHTS TAB"]]:
+		var column := VBoxContainer.new()
+		column.custom_minimum_size = Vector2(420, 0)
+		groups.add_child(column)
+		var heading := Label.new()
+		heading.text = group[1]
+		heading.add_theme_font_size_override("font_size", 13)
+		heading.add_theme_color_override("font_color", ACCENT)
+		column.add_child(heading)
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", 12)
+		column.add_child(grid)
+		for entry in ACTIONS:
+			if str(entry[3]) != group[0] or str(entry[2]) == "":
+				continue
+			var keys_label := Label.new()
+			keys_label.text = _keys_text(entry[1])
+			keys_label.custom_minimum_size = Vector2(130, 0)
+			keys_label.add_theme_font_size_override("font_size", 13)
+			keys_label.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
+			grid.add_child(keys_label)
+			var what := Label.new()
+			what.text = str(entry[2])
+			what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			what.custom_minimum_size = Vector2(270, 0)
+			what.add_theme_font_size_override("font_size", 13)
+			grid.add_child(what)
+
+
+## How keys read in How To: "Shift+Comma" becomes "Shift+,". Browsers report some shifted keys as their
+## symbol (Shift+, arrives as "<"), so ACTIONS lists both; only the first spelling is shown here.
+func _keys_text(keys: Array) -> String:
+	var names := {"Comma": ",", "Period": ".", "BracketLeft": "[", "BracketRight": "]", "Slash": "/", "Equal": "=",
+		"Minus": "-", "Kp Add": "Keypad +", "Kp Subtract": "Keypad -", "Escape": "Esc", "Backspace": "Backspace"}
+	var whole := {"Shift+Slash": "?", "Shift+Equal": "+", "Equal": "="}
+	var shown: Array[String] = []
+	for key in keys:
+		var spec := str(key)
+		if spec.contains("Less") or spec.contains("Greater") or spec.contains("Question") or spec.contains("Plus") \
+				or spec == "Slash" or (spec.begins_with("Shift+") and spec.trim_prefix("Shift+") in ["Left", "Right", "Up", "Down"]):
+			continue
+		if whole.has(spec):
+			shown.append(whole[spec])
+			continue
+		var parts := spec.split("+")
+		for i in parts.size():
+			parts[i] = names.get(parts[i], parts[i])
+		shown.append("+".join(parts))
+	return " or ".join(shown)
+
+
+func _toggle_how_to() -> void:
+	help_overlay.visible = not help_overlay.visible
+	if help_overlay.visible:
+		# Fit the window: no bigger than the screen, so it always shows (it scrolls if it has to).
+		var room := get_viewport().get_visible_rect().size
+		how_to_scroll.custom_minimum_size = Vector2(minf(920.0, room.x - 60.0), minf(540.0, room.y - 80.0))
+
+
+# ---- Keys
+
+## Builds Godot input actions from ACTIONS. Space never presses a focused button (it always captures).
+func _setup_actions() -> void:
+	for entry in ACTIONS:
+		var action: String = entry[0]
+		if InputMap.has_action(action):
+			InputMap.erase_action(action)
+		InputMap.add_action(action)
+		for spec in entry[1]:
+			var ev := _key_event(str(spec))
+			if ev != null:
+				InputMap.action_add_event(action, ev)
+	for ev in InputMap.action_get_events("ui_accept"):
+		if ev is InputEventKey and (ev as InputEventKey).keycode == KEY_SPACE:
+			InputMap.action_erase_event("ui_accept", ev)
+
+
+## "Ctrl+Shift+N" -> a key event. Ctrl means Cmd on a Mac.
+func _key_event(spec: String) -> InputEventKey:
+	var ev := InputEventKey.new()
+	for part in spec.split("+"):
+		match part:
+			"Ctrl":
+				ev.command_or_control_autoremap = true
+			"Shift":
+				ev.shift_pressed = true
+			"Alt":
+				ev.alt_pressed = true
+			_:
+				var code := OS.find_keycode_from_string(part)
+				if code == KEY_NONE:
+					push_warning("Unknown key in ACTIONS: " + spec)
+					return null
+				ev.keycode = code
+	return ev
+
+
+## Runs the action a key press belongs to. Returns true if it was one of ours.
+func _handle_key(event: InputEvent) -> bool:
+	for entry in ACTIONS:
+		var tab: String = entry[3]
+		if tab != "" and tab != current_tab:
+			continue
+		var action: String = entry[0]
+		if event.is_action_pressed(action, action in REPEATING_ACTIONS, true):
+			_run_action(action, (event as InputEventKey).echo, (event as InputEventKey).shift_pressed)
+			return true
+	return false
+
+
+func _run_action(action: String, echo: bool, shift: bool) -> void:
+	match action:
+		"tab_animate":
+			_set_tab("animate")
+		"tab_camera":
+			_set_tab("camera")
+		"tab_set":
+			_set_tab("set")
+		"tab_lights":
+			_set_tab("lights")
+		"toolbar_size":
+			_cycle_toolbar_size()
+		"capture":
+			_capture_frame()
+		"play_all":
+			_toggle_playback(true)
+		"play":
+			_toggle_playback()
+		"undo":
+			_undo()
+		"toggle_view":
+			_toggle_view()
+		"onion":
+			_cycle_onion_layers()
+		"frame_rate":
+			_set_fps(FRAME_RATES[(FRAME_RATES.find(playback_fps) + 1) % FRAME_RATES.size()])
+			_flash_status("Frame rate: %d frames per second." % playback_fps)
+		"delete_frame":
+			_delete_last_frame()
+		"new_shot":
+			_new_shot()
+		"move_shot_earlier":
+			_move_shot(-1)
+		"move_shot_later":
+			_move_shot(1)
+		"prev_shot":
+			if active_shot > 0:
+				_switch_shot(active_shot - 1)
+		"next_shot":
+			if active_shot < shots.size() - 1:
+				_switch_shot(active_shot + 1)
+		"label_shot":
+			shot_label_edit.grab_focus()
+			shot_label_edit.select_all()
+		"delete_shot":
+			_delete_shot_pressed()
+		"prev_figure":
+			_cycle_figure(-1)
+		"next_figure":
+			_cycle_figure(1)
+		"prev_part":
+			_cycle_part(-1)
+		"next_part":
+			_cycle_part(1)
+		"look_left", "look_right", "look_up", "look_down":
+			pass   # Held keys turn the view smoothly in _process.
+		"nudge_left":
+			_arrow_key(Vector2(-1, 0), echo, shift)
+		"nudge_right":
+			_arrow_key(Vector2(1, 0), echo, shift)
+		"nudge_up":
+			_arrow_key(Vector2(0, -1), echo, shift)
+		"nudge_down":
+			_arrow_key(Vector2(0, 1), echo, shift)
+		"view_in":
+			_view_zoom(0.85, 1.0)
+		"view_out":
+			_view_zoom(1.15, 1.0)
+		"reset_view":
+			_reset_view()
+		"remove":
+			_remove_selected()
+		"save":
+			_save_project()
+		"open":
+			_open_project_pressed()
+		"export":
+			_toggle_export_panel(true)
+		"new_project":
+			_new_project_pressed()
+		"how_to":
+			_toggle_how_to()
+		"leave_panel":
+			help_overlay.visible = false
+			get_viewport().gui_release_focus()
+		"tool_bend", "tool_twist", "tool_move", "tool_lift", "tool_squash", \
+				"tool_tripod", "tool_pan", "tool_truck", "tool_dolly", "tool_zoom":
+			_set_tool(action.trim_prefix("tool_"))
+		"add_character":
+			add_character_menu.show_popup()
+		"add_prop":
+			add_prop_menu.show_popup()
+		"style":
+			style_open = not style_open
+			_update_side_panels()
+			if style_open:
+				_focus_panel(style_panel)
+		"scene_list":
+			scene_list_open = not scene_list_open
+			_update_side_panels()
+			if scene_list_open:
+				_focus_panel(scene_list_panel)
+		"reset_pose":
+			_reset_pose()
+		"default_pose":
+			_set_default_pose()
+		"lock_camera":
+			_set_camera_locked(not camera_locked)
+		"shot_size":
+			_frame_shot(SHOT_SIZES[(SHOT_SIZES.find(shot_size) + 1) % SHOT_SIZES.size()], shot_angle)
+		"shot_angle":
+			var at := SHOT_ANGLES.find(shot_angle)
+			_frame_shot(shot_size, SHOT_ANGLES[(at + 1) % SHOT_ANGLES.size()])
+		"reset_camera":
+			_reset_camera()
+		"camera_default":
+			_set_camera_default()
+		"make_backdrop":
+			_make_backdrop_pressed()
+		"green_screen":
+			_choose_backdrop("green")
+		"next_floor":
+			_next_floor()
+		"lock_lighting":
+			_on_light_lock_pressed()
+		"light_key":
+			_select_light_role("key")
+		"light_fill":
+			_select_light_role("fill")
+		"light_back":
+			_select_light_role("back")
+		"light_bg":
+			_select_light_role("bg")
+		"light_on":
+			if not _refuse_if_lighting_locked():
+				_push_light_undo()
+				var light: Dictionary = _lighting()["lights"][light_role]
+				light["on"] = not light["on"]
+				_lighting_changed()
+				_flash_status("%s light %s." % [LIGHT_INFO[light_role][0], "on" if light["on"] else "off"])
+		"next_mood":
+			_next_mood()
+		"lights_all_shots":
+			_apply_lighting_to_all_pressed()
+		"center_lights":
+			_center_lights_on_selected()
+
+
+## Arrow keys: in the Set and Lights tabs they move into the panel; with a camera tool they move the
+## camera; otherwise they nudge the selected part with the current pose tool.
+func _arrow_key(dir: Vector2, echo: bool, big: bool) -> void:
+	if current_tab == "set":
+		_focus_panel(backdrop_panel)
+		return
+	if current_tab == "lights":
+		_focus_panel(lighting_panel)
+		return
+	if current_tool in CAMERA_TOOLS:
+		_nudge_camera(dir, echo, big)
+	else:
+		_nudge_part(dir, echo, big)
+
+
+func _nudge_camera(dir: Vector2, echo: bool, big: bool) -> void:
+	if camera_locked:
+		_flash_status("The camera is locked. Press L to unlock it.")
+		return
+	if not echo:
+		_camera_change_begins()
+	var was := drag_mode
+	drag_mode = current_tool
+	_camera_drag(dir * 10.0 * (NUDGE_BIG if big else 1.0))
+	drag_mode = was
+
+
+## One small step of posing with the current tool, on the selected part (keyboard posing).
+func _nudge_part(dir: Vector2, echo: bool, big: bool) -> void:
+	if selected_figure.is_empty() or not (selected_figure["root"] as Node3D).visible:
+		_cycle_figure(1)
+		if selected_figure.is_empty():
+			return
+	var figure := selected_figure
+	var figure_parts: Array = figure["parts"]
+	if selected_part.is_empty() or not figure_parts.has(selected_part):
+		selected_part = figure_parts[0] if not figure_parts.is_empty() else {}
+	if not echo:
+		_push_undo()
+	var step := NUDGE_BIG if big else 1.0
+	var view := _active_cam().global_transform.basis
+	var right := Vector3(view.x.x, 0, view.x.z).normalized()
+	var forward := Vector3(-view.z.x, 0, -view.z.z).normalized()
+	var root: Node3D = figure["root"]
+	var part := selected_part
+	match current_tool:
+		"bend":
+			# The tip of the part moves the way the arrow points on screen, whichever way the part faces.
+			var screen_move := (view.x.normalized() * dir.x - view.y.normalized() * dir.y).normalized()
+			if part.is_empty() or part["is_prop"]:
+				# Props tip over: left/right in the picture, up/down toward or away from the camera.
+				var tip := Basis(view.z.normalized(), -dir.x * NUDGE_ANGLE * step) * Basis(right, dir.y * NUDGE_ANGLE * step)
+				var body: Node3D = figure["body"] if figure["body"] != null else root
+				_rotate_figure_about(root, body.to_global(figure["center"]), tip)
+			else:
+				var bone := _bone_direction(part)
+				var axis := bone.cross(screen_move)
+				if axis.length() < 0.01:
+					# The part already points the way of the arrow: turn it around the line of sight instead.
+					axis = -view.z.normalized()
+				_aim_part(part, Basis(axis.normalized(), NUDGE_ANGLE * step) * bone)
+		"twist":
+			var turn := (dir.x - dir.y) * NUDGE_ANGLE * step
+			if part.is_empty() or part["is_prop"]:
+				var body: Node3D = figure["body"] if figure["body"] != null else root
+				_rotate_figure_about(root, body.to_global(figure["center"]), Basis(Vector3.UP, turn))
+			else:
+				part["twist"] = float(part["twist"]) + turn
+				_aim_part(part, _bone_direction(part))
+		"move":
+			var p := root.position + (right * dir.x - forward * dir.y) * NUDGE_DISTANCE * step
+			root.position = Vector3(clampf(p.x, -3.2, 3.2), p.y, clampf(p.z, -2.0, 2.8))
+		"lift":
+			root.position.y = clampf(root.position.y - dir.y * NUDGE_DISTANCE * step, 0.0, 3.0)
+		"squash":
+			if figure["kind"] != "prop":
+				_flash_status("Squash works on props. Press Tab to pick a prop.")
+				return
+			_set_squash(figure, clampf(float(figure["squash"]) * exp(dir.y * 0.06 * step), 0.35, 2.5))
+
+
+## Tab / Shift+Tab: select the next or previous character or prop in the scene.
+func _cycle_figure(step: int) -> void:
+	var in_scene: Array[Dictionary] = []
+	for figure in figures:
+		if (figure["root"] as Node3D).visible:
+			in_scene.append(figure)
+	if in_scene.is_empty():
+		_flash_status("Add a character or prop first.")
+		return
+	var at := in_scene.find(selected_figure)
+	selected_figure = in_scene[(at + step + in_scene.size()) % in_scene.size()] if at >= 0 else in_scene[0]
+	var figure_parts: Array = selected_figure["parts"]
+	selected_part = figure_parts[0] if not figure_parts.is_empty() else {}
+	_set_highlight(selected_part)
+	_update_selected_label()
+
+
+## [ and ]: select the previous or next body part of the selected character.
+func _cycle_part(step: int) -> void:
+	if selected_figure.is_empty() or not (selected_figure["root"] as Node3D).visible:
+		_cycle_figure(1)
+		return
+	var figure_parts: Array = selected_figure["parts"]
+	if figure_parts.is_empty():
+		return
+	var at := figure_parts.find(selected_part)
+	selected_part = figure_parts[(at + step + figure_parts.size()) % figure_parts.size()] if at >= 0 else figure_parts[0]
+	_set_highlight(selected_part)
+	_update_selected_label()
+
+
+## Moves the keyboard into a panel: its first control gets the focus (shown with an outline).
+func _focus_panel(panel: Control) -> void:
+	if panel == null or not panel.is_visible_in_tree():
+		return
+	var owner_now := get_viewport().gui_get_focus_owner()
+	if owner_now != null and panel.is_ancestor_of(owner_now):
+		return
+	var first := _first_focusable(panel)
+	if first != null:
+		first.grab_focus()
+
+
+func _first_focusable(node: Node) -> Control:
+	for child in node.get_children():
+		if child is Control and (child as Control).is_visible_in_tree() and (child as Control).focus_mode == Control.FOCUS_ALL \
+				and not (child is BaseButton and (child as BaseButton).disabled):
+			return child
+		var inner := _first_focusable(child)
+		if inner != null:
+			return inner
+	return null
+
+
+## Lets a panel's buttons, sliders, and menus be reached with the arrow keys (and later a controller).
+func _make_keyboard_reachable(node: Node) -> void:
+	if node == null:
+		return
+	for child in node.get_children():
+		if child is BaseButton or child is Range or child is LineEdit:
+			(child as Control).focus_mode = Control.FOCUS_ALL
+		_make_keyboard_reachable(child)
 
 
 # ---------------------------------------------------------------- UI
@@ -4183,7 +4882,15 @@ func _make_theme() -> Theme:
 	t.set_stylebox("pressed", "Button", pressed)
 	t.set_stylebox("hover_pressed", "Button", pressed)
 	t.set_stylebox("disabled", "Button", disabled)
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	# A clear outline on whatever the keyboard (or later a controller) is on.
+	var focus := StyleBoxFlat.new()
+	focus.draw_center = false
+	focus.set_border_width_all(2)
+	focus.border_color = Color(1, 1, 1, 0.9)
+	focus.set_corner_radius_all(7)
+	focus.set_expand_margin_all(2)
+	for type_name in ["Button", "HSlider", "LineEdit"]:
+		t.set_stylebox("focus", type_name, focus)
 	t.set_color("font_pressed_color", "Button", Color(0.1, 0.08, 0.05))
 	t.set_color("font_hover_pressed_color", "Button", Color(0.1, 0.08, 0.05))
 	t.set_color("font_disabled_color", "Button", Color(0.45, 0.46, 0.5))
@@ -4258,23 +4965,33 @@ func _build_ui() -> void:
 	column.add_theme_constant_override("separation", 8)
 	margin.add_child(column)
 
-	# ---- Toolbar: indicator light, then tool/view/pose buttons, then camera buttons.
-	toolbar = PanelContainer.new()
-	toolbar.mouse_filter = Control.MOUSE_FILTER_STOP
+	# ---- Toolbar: department tabs (Animate, Camera, Set, Lights) and the active tab's tools.
+	# Three sizes (H): full, compact (tab bar only), hidden (just a Show Toolbar button).
+	show_toolbar_button = _make_button("Show toolbar (H)", "Bring the toolbar back. (H)")
+	show_toolbar_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	show_toolbar_button.pressed.connect(_set_toolbar_size.bind("full"))
+	show_toolbar_button.visible = false
+	column.add_child(show_toolbar_button)
+
+	toolbar = VBoxContainer.new()
+	toolbar.add_theme_constant_override("separation", 0)
+	toolbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(toolbar)
-	var toolbar_rows := VBoxContainer.new()
-	toolbar_rows.add_theme_constant_override("separation", 6)
-	toolbar.add_child(toolbar_rows)
 
-	var row1 := HBoxContainer.new()
-	row1.add_theme_constant_override("separation", 10)
-	toolbar_rows.add_child(row1)
+	var tab_bar := HBoxContainer.new()
+	tab_bar.add_theme_constant_override("separation", 4)
+	tab_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toolbar.add_child(tab_bar)
 
+	# The mode light: which tool a drag will use.
+	var light_holder := PanelContainer.new()
+	light_holder.mouse_filter = Control.MOUSE_FILTER_STOP
+	tab_bar.add_child(light_holder)
 	var indicator_box := HBoxContainer.new()
-	indicator_box.tooltip_text = "Mode light: green = Bend, yellow = Twist, purple = Move, white = Lift, pink = Squash, red = Camera."
+	indicator_box.tooltip_text = "Mode light: green = Bend, yellow = Twist, purple = Move, white = Lift, pink = Squash, red = Camera, blue = Lights, violet = Set."
 	indicator_box.mouse_filter = Control.MOUSE_FILTER_STOP
-	indicator_box.custom_minimum_size = Vector2(150, 0)
-	row1.add_child(indicator_box)
+	indicator_box.custom_minimum_size = Vector2(118, 0)
+	light_holder.add_child(indicator_box)
 	var light := Panel.new()
 	light.custom_minimum_size = Vector2(16, 16)
 	light.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -4289,16 +5006,63 @@ func _build_ui() -> void:
 	indicator_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	indicator_box.add_child(indicator_label)
 
-	row1.add_child(VSeparator.new())
+	var tab_group := ButtonGroup.new()
+	for tab in TABS:
+		var info: Array = TAB_INFO[tab]
+		var b := _make_button("%s (%s)" % [info[0], info[1]], str(info[2]))
+		b.toggle_mode = true
+		b.button_group = tab_group
+		b.add_theme_font_size_override("font_size", 16)
+		b.pressed.connect(_set_tab.bind(tab))
+		tab_bar.add_child(b)
+		tab_buttons[tab] = b
 
-	var flow := HFlowContainer.new()
-	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	flow.add_theme_constant_override("h_separation", 6)
-	flow.add_theme_constant_override("v_separation", 6)
-	row1.add_child(flow)
+	var tab_spacer := Control.new()
+	tab_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tab_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tab_bar.add_child(tab_spacer)
+	fps_label = Label.new()
+	fps_label.add_theme_font_size_override("font_size", 12)
+	fps_label.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
+	fps_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tab_bar.add_child(fps_label)
+	view_toggle_button = _add_button(tab_bar, "Camera View (C)", "Switch between Studio View (walk around the set) and Camera View (look through the shot camera). (C)", _toggle_view)
+	var view_menu := _make_action_menu("View", "Move your view of the studio. This never changes the shot.", [
+		["View In (+)", _view_zoom.bind(0.85, 1.0)],
+		["View Out (-)", _view_zoom.bind(1.15, 1.0)],
+		["Reset View (V)", _reset_view],
+	])
+	tab_bar.add_child(view_menu)
+	project_menu = _make_action_menu("Project", "New, save, open, and export your project.", [
+		["New Project... (Ctrl+Shift+N)", _new_project_pressed],
+		["Save Project (Ctrl+S)", _save_project],
+		["Open Project... (Ctrl+O)", _open_project_pressed],
+		["Export... (Ctrl+E)", _toggle_export_panel.bind(false)],
+	])
+	tab_bar.add_child(project_menu)
+	_add_button(tab_bar, "How To (?)", "How to use the studio, and every key. (? or F1)", _toggle_how_to)
+	toolbar_size_button = _add_button(tab_bar, "Minimize (H)", "Make the toolbar smaller, then hide it, for more room to see your scene. (H)", _cycle_toolbar_size)
 
+	tool_row_panel = PanelContainer.new()
+	tool_row_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	# Tool rows use slightly smaller buttons than the tab bar, so a whole tab fits on one line.
+	var row_theme := ui_theme.duplicate(true) as Theme
+	row_theme.default_font_size = 14
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		var box := row_theme.get_stylebox(state, "Button") as StyleBoxFlat
+		box.content_margin_left = 9
+		box.content_margin_right = 9
+		box.content_margin_top = 5
+		box.content_margin_bottom = 5
+	tool_row_panel.theme = row_theme
+	toolbar.add_child(tool_row_panel)
+	var rows := VBoxContainer.new()
+	tool_row_panel.add_child(rows)
 	var tool_group := ButtonGroup.new()
-	_add_group_label(flow, "TOOL")
+
+	# Animate: pose tools, undo and pose buttons, and what's in the scene.
+	var animate := _make_tool_row(rows, "animate")
+	_add_group_label(animate, "TOOL")
 	for entry in [
 		["bend", "Bend (B)", "Drag a body part to pull it into place. The spot you grab follows your cursor."],
 		["twist", "Twist (T)", "Drag a body part left or right to turn it around its own length, like turning a head."],
@@ -4306,137 +5070,94 @@ func _build_ui() -> void:
 		["lift", "Lift (U)", "Drag up to raise a character or prop off the table, down to lower it. Great for jumps and bounces."],
 		["squash", "Squash (Q)", "Drag up to stretch a prop tall and thin, down to squash it flat. Try it on a bouncing ball!"],
 	]:
-		var b := _add_tool_button(flow, tool_group, entry[0], entry[1], entry[2])
-		tool_buttons[entry[0]] = b
-
-	_add_divider(flow)
-	_add_group_label(flow, "VIEW")
-	var view_group := ButtonGroup.new()
-	for entry in [
-		["studio", "Studio View", "Walk around the set. Drag empty space to look around, scroll to move closer."],
-		["camera", "Camera View (C)", "Look through the shot camera. The darkened edges are outside the frame."],
-	]:
-		var key: String = entry[0]
-		var b := _make_button(entry[1], entry[2])
-		b.toggle_mode = true
-		b.button_group = view_group
-		b.pressed.connect(_set_view.bind(key == "camera"))
-		flow.add_child(b)
-		view_buttons[key] = b
-	_add_button(flow, "View In", "Move your view closer (Studio View). Does not change the shot.", _view_zoom.bind(0.85, 1.0))
-	_add_button(flow, "View Out", "Move your view farther away (Studio View). Does not change the shot.", _view_zoom.bind(1.15, 1.0))
-	_add_button(flow, "Reset View (V)", "Return to the starting Studio View.", _reset_view)
-
-	_add_divider(flow)
-	_add_group_label(flow, "POSE")
-	_add_button(flow, "Undo (Ctrl+Z)", "Undo the last posing or camera change.", _undo)
-	_add_button(flow, "Reset Pose", "Put every character and prop back in its default pose.", _reset_pose)
-	_add_button(flow, "Set as Default Pose", "Make the current scene the one Reset Pose returns to.", _set_default_pose)
-
-	_add_divider(flow)
-	_add_group_label(flow, "SCENE")
-	flow.add_child(_make_menu_button("Add Character", "Add a person or animal to the scene.", CHARACTER_TYPES, _add_figure))
-	flow.add_child(_make_menu_button("Add Prop", "Add an object to the scene.", PROP_TYPES, _add_figure))
-	_add_button(flow, "Remove", "Take the selected character or prop (the last one you clicked) out of the scene. (Delete)", _remove_selected)
-	var style_button := _make_button("Style", "Change colors (and hairstyles for people) on the selected character or prop.")
+		tool_buttons[entry[0]] = _add_tool_button(animate, tool_group, entry[0], entry[1], entry[2])
+	_add_divider(animate)
+	_add_button(animate, "Undo (Ctrl+Z)", "Undo the last change.", _undo)
+	_add_button(animate, "Reset Pose (R)", "Put every character and prop back in its default pose.", _reset_pose)
+	_add_divider(animate)
+	add_character_menu = _make_menu_button("Add Character (A)", "Add a person or animal to the scene.", CHARACTER_TYPES, _add_figure)
+	animate.add_child(add_character_menu)
+	add_prop_menu = _make_menu_button("Add Prop (Shift+A)", "Add an object to the scene.", PROP_TYPES, _add_figure)
+	animate.add_child(add_prop_menu)
+	_add_button(animate, "Remove (Del)", "Take the selected character or prop out of the scene. Undo brings it back.", _remove_selected)
+	style_button = _make_button("Style (S)", "Change colors (and hairstyles for people) on the selected character or prop.")
 	style_button.toggle_mode = true
 	style_button.toggled.connect(func(on: bool) -> void:
-		style_panel.visible = on
-		_refresh_style_panel(true))
-	flow.add_child(style_button)
-	var list_button := _make_button("Scene List", "Show everything in the scene.")
+		style_open = on
+		_update_side_panels())
+	animate.add_child(style_button)
+	list_button = _make_button("Scene List (I)", "Show everything in the scene.")
 	list_button.toggle_mode = true
-	list_button.toggled.connect(func(on: bool) -> void: scene_list_panel.visible = on)
-	flow.add_child(list_button)
+	list_button.toggled.connect(func(on: bool) -> void:
+		scene_list_open = on
+		_update_side_panels())
+	animate.add_child(list_button)
+	animate.add_child(_make_action_menu("More", "Less-used pose controls.", [
+		["Set as Default Pose (Shift+R)", _set_default_pose],
+	]))
 	selected_label = Label.new()
 	selected_label.add_theme_color_override("font_color", Color(0.75, 0.77, 0.82))
-	flow.add_child(selected_label)
+	selected_label.tooltip_text = "Tab picks the next character or prop; [ and ] pick a body part. Arrow keys then move it a small step with the current tool."
+	selected_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	animate.add_child(selected_label)
 
-	_add_divider(flow)
-	_add_group_label(flow, "PROJECT")
-	_add_button(flow, "New Project", "Start a new animation from scratch.", func() -> void: _confirm("Start a new project? Your current animation will be replaced. Save it first if you want to keep it.", _new_project))
-	_add_button(flow, "Save Project", "Download your project as a small file you can open again later, on any computer.", _save_project)
-	_add_button(flow, "Open Project", "Open a project file you saved earlier.", func() -> void: _confirm("Open a project? Your current animation will be replaced. Save it first if you want to keep it.", _open_project))
-
-	_add_divider(flow)
-	var help_button := _make_button("How To", "Show or hide how to use the studio: the tools, shortcut keys, and tips.")
-	help_button.toggle_mode = true
-	help_button.toggled.connect(func(on: bool) -> void: help_panel.visible = on)
-	flow.add_child(help_button)
-	fps_label = Label.new()
-	fps_label.add_theme_font_size_override("font_size", 12)
-	fps_label.add_theme_color_override("font_color", Color(0.55, 0.57, 0.62))
-	flow.add_child(fps_label)
-
-	# Camera row.
-	var cam_flow := HFlowContainer.new()
-	cam_flow.add_theme_constant_override("h_separation", 6)
-	cam_flow.add_theme_constant_override("v_separation", 6)
-	toolbar_rows.add_child(cam_flow)
-
-	_add_group_label(cam_flow, "CAMERA")
-	lock_button = _make_button("Unlock Camera", "The camera stays locked so it can't be bumped by accident, like a tripod lock. Unlock it to move it. (L)")
+	# Camera: the lock, camera moves, shot size and angle presets.
+	var cam := _make_tool_row(rows, "camera")
+	lock_button = _make_button("Unlock Camera (L)", "The camera stays locked so it can't be bumped by accident, like a tripod lock. Unlock it to move it. (L)")
 	lock_button.toggle_mode = true
 	lock_button.toggled.connect(_on_lock_toggled)
-	cam_flow.add_child(lock_button)
-
-	_add_divider(cam_flow)
-	_add_group_label(cam_flow, "MOVE")
+	cam.add_child(lock_button)
+	_add_divider(cam)
+	_add_group_label(cam, "MOVE")
 	for entry in [
-		["tripod", "Move Tripod", "Slide the whole camera and tripod around the table. It keeps its height and where it's pointing. (In Studio View you can also grab the tripod anytime.)"],
-		["pan", "Pan / Tilt", "Swivel the camera in place. Drag left/right to pan, up/down to tilt."],
-		["truck", "Truck / Pedestal", "Slide the camera without turning it. Left/right is a truck, up/down is a pedestal."],
-		["dolly", "Dolly", "Move the camera toward or away from what it's pointing at. Drag up to dolly in."],
-		["zoom", "Zoom", "Change the lens without moving the camera. Drag up to zoom in. Compare it with a dolly!"],
+		["tripod", "Move Tripod (G)", "Slide the whole camera and tripod around the table. It keeps its height and where it's pointing. (In Studio View you can also grab the tripod anytime.)"],
+		["pan", "Pan / Tilt (T)", "Swivel the camera in place. Drag left/right to pan, up/down to tilt."],
+		["truck", "Truck / Pedestal (K)", "Slide the camera without turning it. Left/right is a truck, up/down is a pedestal."],
+		["dolly", "Dolly (D)", "Move the camera toward or away from what it's pointing at. Drag up to dolly in."],
+		["zoom", "Zoom (Z)", "Change the lens without moving the camera. Drag up to zoom in. Compare it with a dolly!"],
 	]:
-		var b := _add_tool_button(cam_flow, tool_group, entry[0], entry[1], entry[2])
+		var b := _add_tool_button(cam, tool_group, entry[0], entry[1], entry[2])
 		tool_buttons[entry[0]] = b
 		camera_controls.append(b)
-
-	_add_divider(cam_flow)
-	_add_group_label(cam_flow, "SHOT")
+	_add_divider(cam)
+	_add_group_label(cam, "SHOT (F)")
 	for entry in [
-		["wide", "Wide", "Frame the puppet's whole body with room around it."],
-		["medium", "Medium", "Frame the puppet from about the waist up."],
-		["close", "Close-up", "Frame the puppet's face."],
+		["wide", "Wide", "Frame the character's whole body with room around it. (F picks the next shot size.)"],
+		["medium", "Medium", "Frame the character from about the waist up. (F picks the next shot size.)"],
+		["close", "Close-up", "Frame the character's face. (F picks the next shot size.)"],
 	]:
 		var size_name: String = entry[0]
-		var b := _add_button(cam_flow, entry[1], entry[2], func() -> void: _frame_shot(size_name, shot_angle))
-		camera_controls.append(b)
-
-	_add_divider(cam_flow)
-	_add_group_label(cam_flow, "ANGLE")
+		camera_controls.append(_add_button(cam, entry[1], entry[2], func() -> void: _frame_shot(size_name, shot_angle)))
+	_add_group_label(cam, "ANGLE (A)")
 	for entry in [
-		[30.0, "High", "Look down on the puppet. It can make a character seem small or weak."],
-		[3.0, "Eye Level", "Look at the puppet straight on. The most neutral angle."],
-		[-15.0, "Low", "Look up at the puppet. It can make a character seem big or powerful."],
+		[30.0, "High", "Look down on the character. It can make a character seem small or weak. (A picks the next angle.)"],
+		[3.0, "Eye Level", "Look at the character straight on. The most neutral angle. (A picks the next angle.)"],
+		[-15.0, "Low", "Look up at the character. It can make a character seem big or powerful. (A picks the next angle.)"],
 	]:
 		var angle: float = entry[0]
-		var b := _add_button(cam_flow, entry[1], entry[2], func() -> void: _frame_shot(shot_size, angle))
-		camera_controls.append(b)
-
-	_add_divider(cam_flow)
-	camera_controls.append(_add_button(cam_flow, "Reset Camera", "Put the camera back in its default position.", _reset_camera))
-	camera_controls.append(_add_button(cam_flow, "Set Camera Default", "Make the current camera position the one Reset Camera returns to.", _set_camera_default))
+		camera_controls.append(_add_button(cam, entry[1], entry[2], func() -> void: _frame_shot(shot_size, angle)))
+	_add_divider(cam)
+	var cam_more := _make_action_menu("More", "Reset the camera, or save its spot as the default.", [
+		["Reset Camera (R)", _reset_camera],
+		["Set Camera Default (Shift+R)", _set_camera_default],
+	])
+	cam.add_child(cam_more)
+	camera_controls.append(cam_more)
 	lens_label = Label.new()
 	lens_label.tooltip_text = "The lens focal length. Lower numbers are wider; higher numbers zoom in."
 	lens_label.mouse_filter = Control.MOUSE_FILTER_STOP
-	cam_flow.add_child(lens_label)
+	cam.add_child(lens_label)
 
-	_add_divider(cam_flow)
-	_add_group_label(cam_flow, "SET")
-	var backdrop_button := _make_button("Backdrop", "Choose this shot's backdrop (paper, a painted scene, your own picture, or green screen) and floor.")
-	backdrop_button.toggle_mode = true
-	backdrop_button.toggled.connect(func(on: bool) -> void:
-		backdrop_panel.visible = on
-		_refresh_backdrop_panel())
-	cam_flow.add_child(backdrop_button)
-	var lighting_button := _make_button("Lighting", "Set up this shot's key, fill, and back lights, or pick a mood. In Studio View, drag a lamp to move it.")
-	lighting_button.toggle_mode = true
-	lighting_button.toggled.connect(func(on: bool) -> void:
-		lighting_panel.visible = on
-		_refresh_lighting_panel())
-	cam_flow.add_child(lighting_button)
+	# Set and Lights: their controls live in the panel on the left; the row has quick buttons and a hint.
+	var set_row := _make_tool_row(rows, "set")
+	_add_button(set_row, "Make a Backdrop (M)", "Use your own picture as the backdrop.", _make_backdrop_pressed)
+	_add_button(set_row, "Green Screen (G)", "A pure green backdrop for keying out in Premiere.", _choose_backdrop.bind("green"))
+	_add_button(set_row, "Next Floor (F)", "Change the floor under the characters.", _next_floor)
+	_add_tab_hint(set_row, "Pick a backdrop and floor in the panel. Arrow keys move around it; Enter picks.")
+	var lights_row := _make_tool_row(rows, "lights")
+	_add_button(lights_row, "Next Mood (M)", "Try the next lighting mood.", _next_mood)
+	_add_button(lights_row, "Lock / Unlock Lighting (L)", "Lock this shot's lighting, or unlock it to change it.", _on_light_lock_pressed)
+	_add_tab_hint(lights_row, "K F B G choose a light; X turns it on or off. Arrow keys move around the panel.")
 
 	# ---- Status messages (appear briefly under the toolbar).
 	var status_row := HBoxContainer.new()
@@ -4457,33 +5178,6 @@ func _build_ui() -> void:
 	status_action_button = _add_button(status_box, "", "", _on_status_action)
 	status_action_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	status_action_button.visible = false
-
-	# ---- How To panel (hidden until How To is pressed).
-	help_panel = PanelContainer.new()
-	help_panel.visible = false
-	help_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	help_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	column.add_child(help_panel)
-	var help_text := Label.new()
-	help_text.text = "HOW TO USE THE STUDIO\n" \
-		+ "Hover over any button to see what it does.\n" \
-		+ "The light at the top left shows your mode: green Bend, yellow Twist, purple Move, white Lift, pink Squash, red Camera.\n" \
-		+ "Add Character and Add Prop put new things in the scene. Click something to select it; Remove takes it out.\n" \
-		+ "Style changes colors, and hairstyles for people, on whatever is selected.\n" \
-		+ "Bend and Twist work on props too. Lift raises anything off the table. Squash stretches and flattens props.\n" \
-		+ "Hover over a character or prop: the part you'd grab glows.\n" \
-		+ "Drag empty space, right-drag, or use arrow keys to look around (Studio View).\n" \
-		+ "Camera View (C): pose while looking through the shot camera.\n" \
-		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
-		+ "Backdrop: pick paper, a painted scene, green screen, or Make a Backdrop from your own picture. Pick a floor too.\n" \
-		+ "Lighting: pick a mood, then adjust the key, fill, back, and background lights. Drag a lamp in Studio View to move it.\n" \
-		+ "    Lighting locks when you capture a shot's first frame, so every frame matches.\n" \
-		+ "Onion skin (O): see faint ghosts of your last 1 or 3 frames.\n" \
-		+ "Space: capture a frame. P: play this shot. Shift+P: play all shots. Ctrl+Z: undo.\n" \
-		+ "Shots (bottom): a shot is one camera setup. + New Shot picks up where this shot left off,\n" \
-		+ "    so you can change the angle and keep the action going. Click a shot to work on it.\n" \
-		+ "Your work autosaves in this browser on this computer. Save Project makes a file you can open anywhere."
-	help_panel.add_child(help_text)
 
 	# ---- Scene list (hidden until Scene List is pressed).
 	scene_list_panel = PanelContainer.new()
@@ -4612,9 +5306,11 @@ func _build_ui() -> void:
 	var rate_spacer := Control.new()
 	rate_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rate_row.add_child(rate_spacer)
-	var export_button := _make_button("Export...", "Download your animation: frames for each shot, a Premiere package, a video, or a GIF.")
+	var export_button := _make_button("Export... (Ctrl+E)", "Download your animation: frames for each shot, a Premiere package, a video, or a GIF. (Ctrl+E)")
 	export_button.toggle_mode = true
 	export_button.toggled.connect(func(on: bool) -> void: export_panel.visible = on)
+	# The button stays in step when the panel opens from the Project menu or Ctrl+E.
+	export_panel.visibility_changed.connect(func() -> void: export_button.set_pressed_no_signal(export_panel.visible))
 	rate_row.add_child(export_button)
 
 	var onion_row := HBoxContainer.new()
@@ -4655,6 +5351,9 @@ func _build_ui() -> void:
 	cursor_label.visible = false
 	layer.add_child(cursor_label)
 
+	# ---- How To: tips and every key, in a window over the studio (? or F1).
+	_build_how_to(layer)
+
 	# ---- Blocks clicks and shows progress while a project loads.
 	busy_overlay = ColorRect.new()
 	(busy_overlay as ColorRect).color = Color(0, 0, 0, 0.55)
@@ -4680,6 +5379,9 @@ func _build_ui() -> void:
 	confirm_dialog.confirmed.connect(_on_confirmed)
 	add_child(confirm_dialog)
 
+	# Panels can be worked with keys: arrow keys move between their controls, Enter picks.
+	for panel in [scene_list_panel, style_panel, backdrop_panel, lighting_panel, export_panel]:
+		_make_keyboard_reachable(panel)
 	_update_frame_info()
 
 
