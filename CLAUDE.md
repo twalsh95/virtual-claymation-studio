@@ -78,7 +78,7 @@ Sections are marked with `# ------ name` comment lines:
 
 1. **Multiple shots** and **frame memory / export size** (Nov 12; see the design document): in testing. The new Premiere package still needs a test in Premiere, and a long project (a few hundred frames) still needs a run on a class MacBook.
 2. **Lighting.** Built Nov 12, browser-tested Nov 13 (33 to 54 FPS on a MacBook). Still to check: frame rate on a Chromebook.
-3. Backdrops: presets, Make a Backdrop from students' own images, green screen.
+3. **Backdrops.** Designed Nov 13: see "Backdrop design" in the design document (includes a fourth lamp, Background). Build from that; record any changes there.
 4. Button and keyboard posing in small steps (accessibility).
 5. Tutorial levels.
 6. Platform sign-in and cloud saves (Walsh Classroom platform; waits on the student data review).
