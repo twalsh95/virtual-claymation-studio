@@ -1,0 +1,414 @@
+<title>Studio Layout Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: page = intro, layout switch, a 1280x800 mock of the studio scaled to fit, then notes and the draft key list.
+   Single dark look on purpose: it matches the app's own dark theme. */
+:root {
+  color-scheme: dark;
+  --page: #121317;
+  --ink: #e9e9ee;
+  --muted: #9a9ca8;
+  --line: #2c2e36;
+  --panel: rgba(25, 26, 31, 0.94);
+  --btn: #383a45;
+  --btn-hover: #4c4e5a;
+  --btn-off: #26272e;
+  --accent: #f29933;
+  --accent-ink: #1a1408;
+  --capture: #cc3833;
+  --keychip: #23242b;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+html, body { background: var(--page); color: var(--ink); font-family: var(--body); }
+body { padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+h1 { font-family: var(--display); font-size: 1.7rem; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: 1.15rem; margin: 0 0 8px; }
+p { margin: 0; line-height: 1.55; max-width: 70ch; color: var(--muted); }
+p strong { color: var(--ink); }
+.switch { display: flex; flex-wrap: wrap; gap: 8px; }
+.switch button { font: 600 0.95rem var(--body); padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--btn-off); color: var(--ink); cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.switch button:focus-visible, .ui button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* The mock screen: drawn at 1280x800 and scaled to the column width by script. */
+.stage-holder { width: 100%; overflow: hidden; border-radius: 10px; border: 1px solid var(--line); }
+.stage { width: 1280px; height: 800px; position: relative; transform-origin: 0 0; font-family: var(--body); font-size: 15px; color: var(--ink); background: #0c0d10; }
+.scene { position: absolute; inset: 0; }
+.scene svg { width: 100%; height: 100%; display: block; }
+.ui { position: absolute; inset: 0; pointer-events: none; }
+.ui > * { pointer-events: auto; }
+.ui button { font: 500 14px var(--body); color: var(--ink); background: var(--btn); border: 0; border-radius: 6px; padding: 7px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.ui button:hover { background: var(--btn-hover); }
+.ui button.on { background: var(--accent); color: var(--accent-ink); }
+.ui button.on kbd { background: rgba(0,0,0,0.18); color: var(--accent-ink); }
+.ui button.off { background: var(--btn-off); color: #6d6f7a; }
+kbd { font: 600 11px var(--body); background: var(--keychip); color: #b9bbc6; border-radius: 4px; padding: 1px 5px; letter-spacing: 0.02em; }
+.panel { background: var(--panel); border-radius: 8px; padding: 10px 12px; }
+.glabel { font-size: 11px; letter-spacing: 0.08em; color: #8f919c; text-transform: uppercase; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sep { width: 1px; align-self: stretch; background: #3a3c46; margin: 0 4px; }
+.mode { display: flex; align-items: center; gap: 8px; font: 700 15px var(--display); letter-spacing: 0.04em; min-width: 108px; }
+.mode i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px currentColor; background: currentColor; }
+
+/* Shot panel and strip: the same in both layouts. */
+.shotpanel { position: absolute; right: 12px; bottom: 12px; width: 420px; display: grid; gap: 8px; }
+.preview { height: 212px; border-radius: 4px; overflow: hidden; background: #000; }
+.preview svg { width: 100%; height: 100%; display: block; }
+.capture { background: var(--capture) !important; font-size: 17px !important; justify-content: center; padding: 11px !important; }
+.strip { position: absolute; left: 12px; bottom: 12px; right: 444px; display: grid; gap: 8px; }
+.cards { display: flex; gap: 6px; }
+.card { width: 132px; height: 92px; border-radius: 6px; background: var(--btn); display: grid; place-items: end center; padding-bottom: 8px; font-size: 12px; }
+.card.on { background: var(--accent); color: var(--accent-ink); }
+
+/* Layout A: department tabs */
+.tabs { position: absolute; left: 12px; top: 12px; right: 12px; display: grid; gap: 0; }
+.tabbar { display: flex; align-items: end; gap: 4px; }
+.tab { background: #23242b !important; border-radius: 8px 8px 0 0 !important; padding: 10px 18px !important; font: 600 15px var(--display) !important; color: #b8bac4 !important; }
+.tab.on { background: var(--panel) !important; color: var(--ink) !important; box-shadow: inset 0 3px 0 var(--tabcolor); }
+.ui button.tab.on kbd { background: var(--keychip); color: #b9bbc6; }
+.tabbar .spacer { flex: 1; }
+.toolrow { border-radius: 0 8px 8px 8px; }
+.sidepanel { position: absolute; left: 12px; top: 128px; width: 380px; display: grid; gap: 8px; }
+.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.swatches span { aspect-ratio: 1; border-radius: 5px; border: 2px solid transparent; }
+.swatches span.on { border-color: var(--accent); }
+.thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.thumbs span { height: 46px; border-radius: 5px; }
+.slider { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 8px; font-size: 13px; }
+.slider b { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) var(--v), #4a4c57 var(--v)); }
+.menu { position: absolute; right: 12px; top: 54px; width: 230px; display: none; gap: 4px; z-index: 5; }
+.menu.open { display: grid; }
+.menu button { justify-content: space-between; }
+.hint { font-size: 12px; color: #9a9ca8; }
+.toast { position: absolute; left: 50%; transform: translateX(-50%); top: 132px; background: rgba(10,10,12,0.92); padding: 8px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+
+/* Layout B: one toolbar, tidied */
+.bar { position: absolute; left: 12px; top: 12px; right: 12px; }
+.dropdown { position: absolute; top: 64px; display: none; z-index: 5; width: 300px; gap: 6px; }
+.dropdown.open { display: grid; }
+
+/* Keys overlay */
+.keys { position: absolute; inset: 60px 120px; display: none; z-index: 9; overflow: auto; }
+.keys.open { display: block; }
+.keys table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.keys td { padding: 4px 6px; border-bottom: 1px solid #2d2f37; vertical-align: top; }
+
+/* Notes below the mock */
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.note { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 8px; min-width: 0; }
+.note ul { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.55; }
+.note li strong { color: var(--ink); }
+.keytable-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.keytable { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14px; }
+.keytable th, .keytable td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.keytable th { font-family: var(--display); font-weight: 500; color: var(--muted); }
+.keytable kbd { font-size: 12px; }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:8px">
+    <h1>Studio Layout Mockup</h1>
+    <p>Two ways to organize the studio's controls, so you can compare them before anything changes in the app. <strong>Click around, and try the keys</strong>: number keys 1 to 4 switch tabs in Layout A, letter keys pick tools, and <kbd>?</kbd> shows every key. The 3D scene is a stand-in drawing; the shot panel and shot strip on the right and bottom are the same in both layouts.</p>
+  </header>
+
+  <div class="switch" role="group" aria-label="Choose a layout">
+    <button id="pickA" aria-pressed="true">Layout A: Department tabs</button>
+    <button id="pickB" aria-pressed="false">Layout B: One toolbar, tidied</button>
+  </div>
+
+  <div class="stage-holder" id="holder">
+    <div class="stage" id="stage">
+      <div class="scene">
+        <svg viewBox="0 0 1280 800" aria-hidden="true">
+          <defs>
+            <radialGradient id="pool" cx="50%" cy="38%" r="55%"><stop offset="0" stop-color="#cfe4f5"/><stop offset="1" stop-color="#5d7891"/></radialGradient>
+            <linearGradient id="table" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b9774a"/><stop offset="1" stop-color="#6a4127"/></linearGradient>
+          </defs>
+          <rect width="1280" height="520" fill="url(#pool)"/>
+          <path d="M0 470 Q640 560 1280 470 L1280 800 L0 800 Z" fill="url(#table)"/>
+          <ellipse cx="560" cy="560" rx="120" ry="18" fill="rgba(0,0,0,0.25)"/>
+          <g transform="translate(600 250)">
+            <rect x="-34" y="70" width="68" height="110" rx="30" fill="#f08a2a"/>
+            <circle cx="0" cy="40" r="36" fill="#f3dcb8"/>
+            <path d="M-34 22 Q0 -8 34 22 Q20 6 0 6 Q-20 6 -34 22Z" fill="#6b4222"/>
+            <circle cx="-12" cy="40" r="5" fill="#222"/><circle cx="12" cy="40" r="5" fill="#222"/>
+            <rect x="-62" y="80" width="26" height="80" rx="13" fill="#f08a2a"/>
+            <rect x="36" y="80" width="26" height="80" rx="13" fill="#f08a2a"/>
+            <rect x="-30" y="170" width="26" height="120" rx="12" fill="#4a7bd8"/>
+            <rect x="4" y="170" width="26" height="120" rx="12" fill="#4a7bd8"/>
+          </g>
+          <circle cx="820" cy="540" r="26" fill="#e23b2f"/>
+        </svg>
+      </div>
+
+      <div class="ui" id="ui"></div>
+    </div>
+  </div>
+
+  <div class="notes" id="notes"></div>
+
+  <section style="display:grid;gap:10px">
+    <h2>Draft key list</h2>
+    <p>Every control gets a key. Keys that only make sense in one tab (like the camera moves) only work in that tab, so the same letter can be reused. This is a draft to settle together. A game controller would later trigger the same actions (for example, bumpers switch tabs, A captures).</p>
+    <div class="keytable-wrap"><table class="keytable" id="keytable"></table></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // ---- Draft key map (shared by the overlay, the table below, and the key handling).
+  var KEYS = [
+    ["Everywhere", [["1 2 3 4", "Switch tab: Animate, Camera, Set, Lights (Layout A)"], ["Space", "Capture frame"], ["P / Shift+P", "Play this shot / play all shots"], ["Ctrl+Z", "Undo"], ["C", "Studio View / Camera View"], ["O", "Onion skin: off, 1, 3 frames"], ["N", "New shot"], [", and .", "Previous / next shot"], ["Tab / Shift+Tab", "Select next / previous character or prop"], ["[ and ]", "Select previous / next body part"], ["Arrow keys", "Nudge the selected part with the current tool, one small step (Shift: bigger step)"], ["Alt+Arrows", "Look around the studio (Studio View)"], ["+ and -", "View in / out"], ["V", "Reset view"], ["Delete", "Remove the selected character or prop"], ["Esc", "Close a menu or panel"], ["?", "Show all keys"]]],
+    ["Animate tab", [["B T M U Q", "Bend, Twist, Move, Lift, Squash"], ["A", "Add a character or prop (menu)"], ["S", "Style the selected character or prop"], ["R", "Reset pose"]]],
+    ["Camera tab", [["L", "Lock / unlock the camera"], ["G T K D Z", "Move Tripod, Pan/Tilt, Truck/Pedestal, Dolly, Zoom"], ["F", "Next shot size: wide, medium, close-up"], ["A", "Next angle: high, eye level, low"], ["R", "Reset camera"]]],
+    ["Set and Lights tabs", [["Arrow keys", "Move around the panel's choices (like a controller would)"], ["Enter", "Choose the highlighted option"], ["K F B G", "Lights tab: pick the Key, Fill, Back, or Background light"], ["M", "Lights tab: next mood"]]],
+    ["Project menu", [["Ctrl+S", "Save project"], ["Ctrl+O", "Open project"], ["Ctrl+E", "Export"]]]
+  ];
+
+  var TAB_COLORS = { animate: "#4cd65a", camera: "#ff4038", set: "#c58bff", lights: "#5a9aff" };
+  var TOOL_COLORS = { Bend: "#4cd65a", Twist: "#ffd933", Move: "#b373ff", Lift: "#ececf2", Squash: "#ff80cc" };
+  var state = { layout: "A", tab: "animate", tool: "Bend", camTool: "Pan / Tilt", menu: null, keys: false, cameraLocked: true };
+
+  var ui = document.getElementById("ui");
+  var stage = document.getElementById("stage");
+  var holder = document.getElementById("holder");
+
+  function k(key) { return key ? '<kbd>' + key + '</kbd>' : ""; }
+  function btn(label, key, cls, data) {
+    return '<button type="button" class="' + (cls || "") + '"' + (data ? ' data-act="' + data + '"' : "") + '>' + label + k(key) + '</button>';
+  }
+
+  // ---- Pieces both layouts share
+  function shotPanel() {
+    return '<div class="shotpanel panel">' +
+      '<div class="glabel">Shot 1 camera: what gets captured</div>' +
+      '<div class="preview">' + document.querySelector(".scene").innerHTML + '</div>' +
+      btn("CAPTURE FRAME", "Space", "capture", "toast:Captured frame 1.") +
+      '<div class="row">' + btn("Play", "P", "", "toast:Playing Shot 1.") + btn("Play All", "Shift+P", "", "toast:Playing all shots.") + btn("Delete Last Frame", "", "", "toast:Deleted the last frame.") + '</div>' +
+      '<div class="row"><span class="hint">Frame rate</span>' + btn("12 fps ▾") + '<span class="hint" style="margin-left:8px">Onion skin</span>' + btn("Off") + btn("1", "", "on") + btn("3") + k("O") + '</div>' +
+      '</div>';
+  }
+  function shotStrip() {
+    return '<div class="strip panel">' +
+      '<div class="row"><span class="glabel">Shots</span>' + btn("Label this shot…") + btn("Move Earlier", ",") + btn("Move Later", ".") + btn("Delete Shot") + '</div>' +
+      '<div class="cards"><div class="card on">Shot 1 · 0 frames</div><div class="card">Shot 2 · 14 frames</div><div class="card">+ New Shot <kbd style="margin-left:4px">N</kbd></div></div>' +
+      '</div>';
+  }
+  function modeLight() {
+    var color, label;
+    if (state.layout === "A" && state.tab !== "animate") {
+      color = TAB_COLORS[state.tab]; label = state.tab.toUpperCase();
+    } else { color = TOOL_COLORS[state.tool]; label = state.tool.toUpperCase(); }
+    return '<div class="mode" style="color:' + color + '"><i></i><span>' + label + '</span></div>';
+  }
+  function poseTools() {
+    return [["Bend", "B"], ["Twist", "T"], ["Move", "M"], ["Lift", "U"], ["Squash", "Q"]].map(function (t) {
+      return btn(t[0], t[1], state.tool === t[0] ? "on" : "", "tool:" + t[0]);
+    }).join("");
+  }
+  function camTools(off) {
+    return [["Move Tripod", "G"], ["Pan / Tilt", "T"], ["Truck / Pedestal", "K"], ["Dolly", "D"], ["Zoom", "Z"]].map(function (t) {
+      var cls = off ? "off" : (state.camTool === t[0] ? "on" : "");
+      return btn(t[0], t[1], cls, off ? "toast:Unlock the camera first (L)." : "cam:" + t[0]);
+    }).join("");
+  }
+  function projectMenu(open) {
+    return '<div class="menu panel' + (open ? " open" : "") + '">' +
+      btn("New Project", "", "", "toast:New project (asks first).") + btn("Save Project", "Ctrl+S", "", "toast:Saved.") + btn("Open Project", "Ctrl+O", "", "toast:Open a project file.") +
+      btn("Export…", "Ctrl+E", "", "toast:Export panel opens.") + btn("How To", "", "", "toast:How To panel opens.") + btn("All keys", "?", "", "keys") +
+      '</div>';
+  }
+
+  // ---- Layout A: department tabs
+  function tabContent() {
+    var t = state.tab;
+    if (t === "animate") {
+      return {
+        row: '<span class="glabel">Tool</span>' + poseTools() + '<span class="sep"></span>' + btn("Undo", "Ctrl+Z", "", "toast:Undid the last change.") + btn("Reset Pose", "R") + '<span class="sep"></span>' + btn("Add ▾", "A", "", "toast:Add menu: characters and props.") + btn("Style", "S") + btn("Remove", "Del") + '<span class="sep"></span><span class="hint">Selected: Kid · Left Arm <kbd>Tab</kbd> <kbd>[ ]</kbd></span>',
+        side: '<div class="panel" style="display:grid;gap:8px"><div class="glabel">In the scene</div>' +
+          '<div class="row">' + btn("Kid", "", "on") + btn("Ball") + '</div>' +
+          '<div class="hint">Arrow keys nudge the selected body part one small step with the current tool. Hold Shift for a bigger step.</div></div>'
+      };
+    }
+    if (t === "camera") {
+      var off = state.cameraLocked;
+      return {
+        row: btn(off ? "Unlock Camera" : "Lock Camera", "L", off ? "" : "on", "lock") + '<span class="sep"></span><span class="glabel">Move</span>' + camTools(off) + '<span class="sep"></span>' +
+          '<span class="glabel">Shot</span>' + btn("Wide", "", off ? "off" : "") + btn("Medium", "", off ? "off" : "") + btn("Close-up", "", off ? "off" : "") + k("F") +
+          '<span class="glabel" style="margin-left:6px">Angle</span>' + btn("High", "", off ? "off" : "") + btn("Eye Level", "", off ? "off" : "") + btn("Low", "", off ? "off" : "") + k("A") + '<span class="hint" style="margin-left:6px">Lens 33 mm</span>',
+        side: '<div class="panel" style="display:grid;gap:8px"><div class="glabel">Camera</div>' +
+          '<div class="hint">' + (off ? "The camera is locked so it can't be bumped. Press <kbd>L</kbd> or Unlock Camera to move it. Locked buttons stay readable instead of looking broken." : "Drag in the scene to use the chosen camera move. Grab the tripod in Studio View to slide it.") + '</div>' +
+          '<div class="row">' + btn("Reset Camera", "R", off ? "off" : "") + btn("Set Camera Default", "", off ? "off" : "") + '</div></div>'
+      };
+    }
+    if (t === "set") {
+      var sw = ["#eeeee6", "#8c8c91", "#0f0f12", "#8cb3d1", "#fad14d", "#cc3833", "#734da6", "#99d9b3"].map(function (c, i) { return '<span class="' + (i === 3 ? "on" : "") + '" style="background:' + c + '"></span>'; }).join("");
+      var th = ["linear-gradient(#61a6f2,#c7e5ff 60%,#4d944a 60%)", "linear-gradient(#4d3a7a,#e6737f 50%,#ffbf66 70%,#3d2945 70%)", "linear-gradient(#05081a,#1a2149)", "linear-gradient(#73b3f2 50%,#8c949e 50%)", "linear-gradient(#0a0a1a,#241f47)", "linear-gradient(#dbc79a 80%,#8c5e36 80%)", "linear-gradient(#1f94c7,#05335c)"].map(function (g) { return '<span style="background:' + g + '"></span>'; }).join("");
+      return {
+        row: '<span class="glabel">Set</span>' + btn("Backdrop", "", "on") + btn("Floor") + btn("Sets (coming)", "", "off", "toast:Three-wall sets come after the layout work.") + '<span class="sep"></span><span class="hint">Arrow keys move around the choices, Enter picks one</span>',
+        side: '<div class="panel" style="display:grid;gap:8px"><div class="glabel">Backdrop: Shot 1</div>' +
+          '<div class="hint">Paper</div><div class="swatches">' + sw + '</div>' +
+          '<div class="hint">Scenes</div><div class="thumbs">' + th + '</div>' +
+          '<div class="row">' + btn("Make a Backdrop…") + btn("Green Screen") + '</div>' +
+          '<div class="row"><span class="hint">Floor</span>' + btn("Wooden table ▾") + '</div></div>'
+      };
+    }
+    return {
+      row: btn("Lock Lighting", "", "", "toast:Lighting locked for Shot 1.") + '<span class="sep"></span><span class="glabel">Mood</span>' + btn("Three-Point ▾", "M") + '<span class="sep"></span><span class="glabel">Light</span>' +
+        btn("Key", "K", "on") + btn("Fill", "F") + btn("Back", "B") + btn("Background", "G") + '<span class="sep"></span>' + btn("Center on Selected") + btn("Apply to All Shots"),
+      side: '<div class="panel" style="display:grid;gap:9px"><div class="glabel">Key light: Shot 1</div>' +
+        '<div class="hint">The main light. It sets the mood and makes the strongest shadows.</div>' +
+        '<div class="slider"><span>Brightness 70%</span><b style="--v:70%"></b></div>' +
+        '<div class="slider"><span>Color temp 4200K (warm)</span><b style="--v:31%"></b></div>' +
+        '<div class="slider"><span>Height 2.4</span><b style="--v:58%"></b></div>' +
+        '<div class="row"><span class="hint">Gel</span>' + btn("No gel ▾") + '</div>' +
+        '<div class="slider"><span>Room light 45%</span><b style="--v:45%"></b></div>' +
+        '<div class="hint">Arrow keys: up/down picks a slider, left/right changes it.</div></div>'
+    };
+  }
+  function renderA() {
+    var c = tabContent();
+    var tabs = [["animate", "Animate", "1", "The animator: poses characters and props"], ["camera", "Camera", "2", "The camera operator: frames and moves the shot"], ["set", "Set", "3", "The set designer: backdrop, floor, and sets"], ["lights", "Lights", "4", "The gaffer: lights the set"]];
+    var bar = tabs.map(function (t) {
+      return '<button type="button" class="tab' + (state.tab === t[0] ? " on" : "") + '" style="--tabcolor:' + TAB_COLORS[t[0]] + '" data-act="tab:' + t[0] + '" title="' + t[3] + '">' + t[1] + k(t[2]) + '</button>';
+    }).join("");
+    ui.innerHTML =
+      '<div class="tabs"><div class="tabbar">' + bar + '<span class="spacer"></span>' +
+      btn(state.layout === "A" ? "Studio View" : "", "C", "", "toast:Switched to Camera View.") + btn("Project ▾", "", state.menu === "project" ? "on" : "", "menu:project") + btn("?", "", "", "keys") + '</div>' +
+      '<div class="toolrow panel row">' + modeLight() + '<span class="sep"></span>' + c.row + '</div></div>' +
+      '<div class="sidepanel">' + c.side + '</div>' +
+      projectMenu(state.menu === "project") + shotStrip() + shotPanel() + toastEl() + keysEl();
+  }
+
+  // ---- Layout B: one toolbar with menus
+  function dropdown(name, left, body) {
+    return '<div class="dropdown panel' + (state.menu === name ? " open" : "") + '" style="left:' + left + 'px">' + body + '</div>';
+  }
+  function renderB() {
+    var off = state.cameraLocked;
+    ui.innerHTML =
+      '<div class="bar panel row">' + modeLight() + '<span class="sep"></span><span class="glabel">Tool</span>' + poseTools() + '<span class="sep"></span>' +
+      btn("Undo", "Ctrl+Z") + '<span class="sep"></span>' +
+      btn("Scene ▾", "", state.menu === "scene" ? "on" : "", "menu:scene") + btn("Camera ▾", "", state.menu === "camera" ? "on" : "", "menu:camera") +
+      btn("Set ▾", "", state.menu === "set" ? "on" : "", "menu:set") + btn("Lights ▾", "", state.menu === "lights" ? "on" : "", "menu:lights") +
+      '<span class="sep"></span>' + btn("Studio View", "C") + '<span style="flex:1"></span>' + btn("Project ▾", "", state.menu === "project" ? "on" : "", "menu:project") + btn("?", "", "", "keys") + '</div>' +
+      dropdown("scene", 560, '<div class="glabel">Scene</div>' + btn("Add Character…") + btn("Add Prop…") + btn("Style…", "S") + btn("Remove", "Del") + btn("Reset Pose", "R") + btn("Set as Default Pose")) +
+      dropdown("camera", 650, '<div class="glabel">Camera</div>' + btn(off ? "Unlock Camera" : "Lock Camera", "L", off ? "" : "on", "lock") + '<div class="row">' + camTools(off) + '</div>' +
+        '<div class="row"><span class="hint">Shot</span>' + btn("Wide") + btn("Medium") + btn("Close-up") + '</div><div class="row"><span class="hint">Angle</span>' + btn("High") + btn("Eye Level") + btn("Low") + '</div>' + btn("Reset Camera")) +
+      dropdown("set", 760, '<div class="glabel">Set</div>' + btn("Backdrop…") + btn("Floor ▾") + '<div class="hint">Opens the Backdrop panel on the left, like today.</div>') +
+      dropdown("lights", 830, '<div class="glabel">Lights</div>' + btn("Lighting panel…") + btn("Mood ▾", "M") + btn("Lock Lighting") + '<div class="hint">Opens the Lighting panel on the left, like today.</div>') +
+      projectMenu(state.menu === "project") + shotStrip() + shotPanel() + toastEl() + keysEl();
+  }
+
+  function toastEl() { return '<div class="toast" id="toast"></div>'; }
+  function keysEl() {
+    var rows = KEYS.map(function (g) {
+      return '<tr><td colspan="2" class="glabel" style="padding-top:10px">' + g[0] + '</td></tr>' + g[1].map(function (r) { return '<tr><td style="width:170px"><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>'; }).join("");
+    }).join("");
+    return '<div class="keys panel' + (state.keys ? " open" : "") + '"><div class="row" style="justify-content:space-between"><h2 style="margin:0">All keys (draft)</h2>' + btn("Close", "Esc", "", "keys") + '</div><table>' + rows + '</table></div>';
+  }
+
+  function render() {
+    if (state.layout === "A") renderA(); else renderB();
+    document.getElementById("pickA").setAttribute("aria-pressed", state.layout === "A");
+    document.getElementById("pickB").setAttribute("aria-pressed", state.layout === "B");
+    renderNotes();
+  }
+
+  var toastTimer = null;
+  function toast(text) {
+    var el = document.getElementById("toast");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { var t = document.getElementById("toast"); if (t) t.classList.remove("show"); }, 1600);
+  }
+
+  function act(a) {
+    if (!a) return;
+    var parts = a.split(":");
+    var kind = parts.shift();
+    var arg = parts.join(":");
+    if (kind === "tab") { state.tab = arg; state.menu = null; render(); return; }
+    if (kind === "tool") { state.tool = arg; render(); toast(arg + " tool"); return; }
+    if (kind === "cam") { state.camTool = arg; render(); toast(arg + ": drag in the scene"); return; }
+    if (kind === "lock") { state.cameraLocked = !state.cameraLocked; render(); toast(state.cameraLocked ? "Camera locked." : "Camera unlocked."); return; }
+    if (kind === "menu") { state.menu = state.menu === arg ? null : arg; render(); return; }
+    if (kind === "keys") { state.keys = !state.keys; state.menu = null; render(); return; }
+    if (kind === "toast") { state.menu = null; render(); toast(arg); return; }
+  }
+
+  ui.addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b) return;
+    act(b.getAttribute("data-act"));
+  });
+
+  // ---- Keys work in the mockup too (only the ones that change what you see).
+  document.addEventListener("keydown", function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var key = e.key;
+    if (key === "?") { act("keys"); return; }
+    if (key === "Escape") { state.keys = false; state.menu = null; render(); return; }
+    if (state.layout === "A" && "1234".indexOf(key) >= 0 && key.length === 1) {
+      act("tab:" + ["animate", "camera", "set", "lights"][Number(key) - 1]); e.preventDefault(); return;
+    }
+    var upper = key.toUpperCase();
+    var inAnimate = state.layout === "B" || state.tab === "animate";
+    var inCamera = state.layout === "A" && state.tab === "camera";
+    if (inAnimate) {
+      var map = { B: "Bend", T: "Twist", M: "Move", U: "Lift", Q: "Squash" };
+      if (map[upper]) { act("tool:" + map[upper]); return; }
+    }
+    if (inCamera) {
+      if (upper === "L") { act("lock"); return; }
+      var cmap = { G: "Move Tripod", T: "Pan / Tilt", K: "Truck / Pedestal", D: "Dolly", Z: "Zoom" };
+      if (cmap[upper]) { if (state.cameraLocked) toast("Unlock the camera first (L)."); else act("cam:" + cmap[upper]); return; }
+    }
+    if (key === " ") { e.preventDefault(); toast("Captured a frame."); return; }
+  });
+
+  document.getElementById("pickA").addEventListener("click", function () { state.layout = "A"; state.menu = null; render(); });
+  document.getElementById("pickB").addEventListener("click", function () { state.layout = "B"; state.menu = null; render(); });
+
+  // ---- Notes under the mock
+  function renderNotes() {
+    var a = state.layout === "A";
+    var notes = a ? [
+      ["What changes", ["<strong>Four tabs</strong> (keys 1 to 4), one per crew job. A tab shows only its own tools, plus its panel on the left in one consistent place.", "<strong>Project menu</strong> holds New, Save, Open, Export, and How To, things used once in a while.", "<strong>Every button shows its key.</strong> <kbd>?</kbd> lists them all.", "<strong>Capture, Play, the shot preview, and the shot strip</strong> never move."]],
+      ["Why it might work", ["About 15 buttons on screen at a time instead of about 45.", "Matches how a film crew divides the work, which is a career connection for MACA.", "Easiest to drive with a controller: bumpers switch tabs, and there's one short row to move through."]],
+      ["What it costs", ["Some actions are now one click further away (for example, changing the backdrop while animating means switching to Set).", "Students learn which tab holds what. The tab names and tooltips have to make that obvious."]]
+    ] : [
+      ["What changes", ["<strong>One toolbar</strong> with the pose tools always out, and <strong>menus</strong> for Scene, Camera, Set, Lights, and Project.", "Panels still open on the left like today.", "Every button shows its key; <kbd>?</kbd> lists them all."]],
+      ["Why it might work", ["Closest to today, so less for anyone to relearn.", "Pose tools, the most used, are always one click away."]],
+      ["What it costs", ["Menus hide things: the camera moves and lighting are always two clicks away.", "Harder to drive with a controller: menus inside a toolbar are fiddly to navigate.", "Still one long bar that grows with every feature, which is how it got crowded."]]
+    ];
+    document.getElementById("notes").innerHTML = notes.map(function (n) {
+      return '<div class="note"><h2>' + n[0] + '</h2><ul>' + n[1].map(function (li) { return "<li>" + li + "</li>"; }).join("") + '</ul></div>';
+    }).join("");
+  }
+
+  // ---- Key table below the mock
+  document.getElementById("keytable").innerHTML = '<thead><tr><th style="width:200px">Key</th><th>What it does</th></tr></thead><tbody>' +
+    KEYS.map(function (g) {
+      return '<tr><th colspan="2">' + g[0] + '</th></tr>' + g[1].map(function (r) { return '<tr><td><kbd>' + r[0] + '</kbd></td><td>' + r[1] + '</td></tr>'; }).join("");
+    }).join("") + '</tbody>';
+
+  // ---- Scale the 1280x800 mock to the column width.
+  function fit() {
+    var s = Math.min(1, holder.clientWidth / 1280);
+    stage.style.transform = "scale(" + s + ")";
+    holder.style.height = (800 * s) + "px";
+  }
+  window.addEventListener("resize", fit);
+  render();
+  fit();
+})();
+</script>
