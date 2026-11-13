@@ -50,7 +50,7 @@ Godot is installed on Tom's Windows PC (4.7.2 standard, not .NET). Find the exec
 
 Sections are marked with `# ------ name` comment lines:
 
-- **Constants** (top): `FRAME_RATES` [10,12,15,24,30,60] (Premiere's sequence rates; default 12), `CHARACTER_TYPES`, `PROP_TYPES`, `HAIR_STYLES`, `CLAY_PALETTE`, `SPAWN_SPOTS`, `POSE_TOOLS` [bend, twist, move, lift, squash], `CAMERA_TOOLS` [pan, truck, dolly, zoom], `MODE_INFO` (indicator light colors), render layers `LAYER_WORLD`=1, `LAYER_CAMERA_PROP`=2, `LAYER_GHOSTS`=4.
+- **Constants** (top): `FRAME_RATES` [10,12,15,24,30,60] (Premiere's sequence rates; default 12), `CHARACTER_TYPES`, `PROP_TYPES`, `HAIR_STYLES`, `CLAY_PALETTE`, `SPAWN_SPOTS`, `POSE_TOOLS` [bend, twist, move, lift, squash], `CAMERA_TOOLS` [tripod, pan, truck, dolly, zoom] ("tripod" is Move Tripod), `MODE_INFO` (indicator light colors), render layers `LAYER_WORLD`=1, `LAYER_CAMERA_PROP`=2, `LAYER_GHOSTS`=4.
 - **world**: environment (its ambient light is the "room light"), the set (`_build_set`: an 11-wide tabletop `floor_mesh` and the curved paper sweep backdrop), shared clay texture.
 - **scene objects**: every character or prop is a "figure" Dictionary (fields documented above the members). `_spawn(type, id, where)`, `_build_humanoid` (kid, man, woman), `_build_quadruped` (dog, cat: "Hips (whole body)" and "Chest" joints), `_build_prop` (each prop has a squashable "Body" node). Mesh helpers: `_add_limb`, `_add_sphere`, `_add_box`, `_add_cylinder`, `_add_cone`. Style: `_register_slots`, `_set_figure_color`, `_build_hair`/`_set_hair`, `_figure_style`/`_apply_style`.
 - **adding, removing, scene list**: `_add_figure`, `_remove_selected` (confirms), `_remove_figure` (hides; undoable), `_select_figure`, `_refresh_scene_list`.
@@ -80,7 +80,8 @@ Sections are marked with `# ------ name` comment lines:
 1. **Multiple shots** and **frame memory / export size** (Nov 12; see the design document): in testing. The new Premiere package still needs a test in Premiere, and a long project (a few hundred frames) still needs a run on a class MacBook.
 2. **Lighting.** Built Nov 12, browser-tested Nov 13 (33 to 54 FPS on a MacBook). Still to check: frame rate on a Chromebook.
 3. **Backdrops** and the **Background light.** Built Nov 13 (see "Backdrop design" in the design document); in testing.
-4. Button and keyboard posing in small steps (accessibility).
+4. **UI pass and controls** (Tom, Nov 13): declutter the layout, a key for every control, controller-ready. Design with Tom first; it absorbs keyboard posing in small steps (accessibility). Then **Sets** (three-wall sitcom sets).
+5. Button and keyboard posing in small steps: now part of the UI pass.
 5. Tutorial levels.
 6. Platform sign-in and cloud saves (Walsh Classroom platform; waits on the student data review).
 7. Test the live site and the Premiere package on a class MacBook.

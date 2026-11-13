@@ -175,7 +175,8 @@ const SHOT_PREVIEW_MASK := LAYER_WORLD | LAYER_GHOSTS
 const SHOT_CAPTURE_MASK := LAYER_WORLD
 
 const POSE_TOOLS := ["bend", "twist", "move", "lift", "squash"]
-const CAMERA_TOOLS := ["pan", "truck", "dolly", "zoom"]
+const CAMERA_TOOLS := ["tripod", "pan", "truck", "dolly", "zoom"]
+const TRIPOD_SPEED := 0.006
 const MODE_INFO := {
 	"bend": ["BEND", Color(0.3, 0.85, 0.35)],
 	"twist": ["TWIST", Color(1.0, 0.85, 0.2)],
@@ -187,7 +188,7 @@ const MODE_INFO := {
 }
 const TOOL_NAMES := {
 	"bend": "Bend", "twist": "Twist", "move": "Move", "lift": "Lift", "squash": "Squash",
-	"pan": "Pan / Tilt", "truck": "Truck / Pedestal", "dolly": "Dolly", "zoom": "Zoom",
+	"tripod": "Move Tripod", "pan": "Pan / Tilt", "truck": "Truck / Pedestal", "dolly": "Dolly", "zoom": "Zoom",
 }
 
 # Work view: the camera the animator looks through while posing.
@@ -1717,6 +1718,12 @@ func _clamp_camera() -> void:
 func _camera_drag(rel: Vector2) -> void:
 	var t := shot_camera.global_transform
 	match drag_mode:
+		"tripod":
+			# Camera View: slide the whole tripod across the table, keeping its height and aim.
+			# Left/right moves sideways, up/down moves forward and back.
+			var flat_right := Vector3(t.basis.x.x, 0, t.basis.x.z).normalized()
+			var flat_forward := Vector3(-t.basis.z.x, 0, -t.basis.z.z).normalized()
+			t.origin += flat_right * rel.x * TRIPOD_SPEED + flat_forward * -rel.y * TRIPOD_SPEED
 		"pan":
 			# Swivel in place: left/right turns (pan), up/down tips (tilt). The horizon stays level.
 			var b := Basis(Vector3.UP, -rel.x * CAM_TURN_SPEED) * t.basis
@@ -1903,8 +1910,13 @@ func _begin_drag(screen_pos: Vector2) -> void:
 	dragging = true
 	undo_pending = false
 
-	# Camera tools move the camera wherever you drag.
+	# Camera tools move the camera wherever you drag. In Studio View, though, grabbing the tripod itself
+	# always slides it (whatever camera tool is chosen), and with Move Tripod any drag slides it.
 	if current_tool in CAMERA_TOOLS:
+		if not camera_view:
+			var tripod_t := _pick_camera(screen_pos)
+			if (tripod_t < INF or current_tool == "tripod") and _start_tripod_grab(screen_pos, tripod_t):
+				return
 		drag_mode = current_tool
 		undo_pending = true
 		Input.set_default_cursor_shape(Input.CURSOR_DRAG)
@@ -1941,15 +1953,7 @@ func _begin_drag(screen_pos: Vector2) -> void:
 			drag_mode = "none"
 			_flash_status("The camera is locked. Press Unlock Camera (L) to move it.")
 			return
-		var origin := work_camera.project_ray_origin(screen_pos)
-		var dir := work_camera.project_ray_normal(screen_pos)
-		var cam_point := origin + dir * cam_t
-		move_plane_y = cam_point.y
-		move_offset = shot_camera.global_position - cam_point
-		drag_mode = "grab_camera"
-		undo_pending = true
-		_update_indicator()
-		Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+		_start_tripod_grab(screen_pos, cam_t)
 		return
 
 	if hit.is_empty():
@@ -2017,10 +2021,14 @@ func _update_hover(screen_pos: Vector2) -> void:
 	if current_tool in CAMERA_TOOLS:
 		_set_highlight({})
 		hovered = {}
-		_set_camera_glow(false)
 		hovered_light = ""
 		_set_lamp_glow("")
-		Input.set_default_cursor_shape(Input.CURSOR_MOVE)
+		# The tripod still glows under the cursor, since grabbing it slides it.
+		var over_tripod := _pick_camera(screen_pos) < INF
+		if over_tripod != hovered_camera:
+			hovered_camera = over_tripod
+			_set_camera_glow(over_tripod)
+		Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND if over_tripod else Input.CURSOR_MOVE)
 		return
 	var hit := _pick_part(screen_pos)
 	var cam_t := _pick_camera(screen_pos)
@@ -2287,6 +2295,29 @@ func _move_to(screen_pos: Vector2) -> void:
 	root.position = p
 
 
+## Starts sliding the tripod in Studio View. tripod_t: how far along the cursor ray the tripod was hit,
+## or INF when the drag started elsewhere (Move Tripod), in which case the grab point is level with the camera.
+## Returns false if there's nothing to grab from (the cursor points up into the sky).
+func _start_tripod_grab(screen_pos: Vector2, tripod_t: float) -> bool:
+	var origin := work_camera.project_ray_origin(screen_pos)
+	var dir := work_camera.project_ray_normal(screen_pos)
+	var point: Vector3
+	if tripod_t < INF:
+		point = origin + dir * tripod_t
+	else:
+		var hit_v: Variant = Plane(Vector3.UP, shot_camera.global_position.y).intersects_ray(origin, dir)
+		if hit_v == null:
+			return false
+		point = hit_v
+	move_plane_y = point.y
+	move_offset = shot_camera.global_position - point
+	drag_mode = "grab_camera"
+	undo_pending = true
+	_update_indicator()
+	Input.set_default_cursor_shape(Input.CURSOR_DRAG)
+	return true
+
+
 ## Grabbing the tripod: it slides across the table under the cursor, keeping its height and aim.
 func _grab_camera_to(screen_pos: Vector2) -> void:
 	var hit_v: Variant = _ray_hit_plane(screen_pos, Plane(Vector3.UP, move_plane_y))
@@ -2487,10 +2518,10 @@ func _process(delta: float) -> void:
 
 	# Small label by the cursor naming what a drag will do.
 	var label_text := ""
-	if current_tool in CAMERA_TOOLS:
-		label_text = TOOL_NAMES[current_tool]
-	elif hovered_camera or drag_mode == "grab_camera":
+	if hovered_camera or drag_mode == "grab_camera":
 		label_text = "Move Camera"
+	elif current_tool in CAMERA_TOOLS:
+		label_text = TOOL_NAMES[current_tool]
 	elif drag_mode == "grab_light" or hovered_light != "":
 		var role := grab_light_role if drag_mode == "grab_light" else hovered_light
 		label_text = "Move %s Light" % LIGHT_INFO[role][0]
@@ -4352,6 +4383,7 @@ func _build_ui() -> void:
 	_add_divider(cam_flow)
 	_add_group_label(cam_flow, "MOVE")
 	for entry in [
+		["tripod", "Move Tripod", "Slide the whole camera and tripod around the table. It keeps its height and where it's pointing. (In Studio View you can also grab the tripod anytime.)"],
 		["pan", "Pan / Tilt", "Swivel the camera in place. Drag left/right to pan, up/down to tilt."],
 		["truck", "Truck / Pedestal", "Slide the camera without turning it. Left/right is a truck, up/down is a pedestal."],
 		["dolly", "Dolly", "Move the camera toward or away from what it's pointing at. Drag up to dolly in."],
