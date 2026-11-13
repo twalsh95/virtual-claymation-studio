@@ -440,6 +440,37 @@ window.vcsExport = (function () {
       zip = null;
     },
 
+    // Make a Backdrop: opens the file picker for a picture and sends back
+    // "image:<file name>|<JPG as base64>", "cancel", or "error: <reason>". The browser
+    // turns any picture it can show (including iPhone photos in Safari) into a JPG no
+    // bigger than 2400 pixels across, and Godot crops it to fit the backdrop.
+    openImage: function (cb) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (!file) { reply(cb, 'cancel'); return; }
+        (async () => {
+          const bitmap = await createImageBitmap(file);
+          const scale = Math.min(1, 2400 / Math.max(bitmap.width, bitmap.height));
+          const w = Math.max(1, Math.round(bitmap.width * scale));
+          const h = Math.max(1, Math.round(bitmap.height * scale));
+          const canvas = new OffscreenCanvas(w, h);
+          canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+          bitmap.close();
+          const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 });
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          let s = '';
+          for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+          return 'image:' + file.name.replace(/\|/g, ' ') + '|' + btoa(s);
+        })().then((r) => reply(cb, r),
+          () => reply(cb, "error: that picture couldn't be opened. Try a JPG or PNG."));
+      });
+      input.addEventListener('cancel', () => reply(cb, 'cancel'));
+      input.click();
+    },
+
     // Opens the browser's file picker for a saved project and sends back
     // "file:<project text>", "cancel", or "error: <reason>".
     openFile: function (cb) {

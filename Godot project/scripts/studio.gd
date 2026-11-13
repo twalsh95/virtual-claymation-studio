@@ -16,7 +16,7 @@ const CAM_ZOOM_SPEED := 0.08
 const FRAME_RATES := [10, 12, 15, 24, 30, 60]
 const DEFAULT_FPS := 12
 const APP_NAME := "Virtual Claymation Studio"
-const PROJECT_VERSION := 4
+const PROJECT_VERSION := 5
 const PROJECT_EXT := "clay"
 const AUTOSAVE_PATH := "user://autosave.claymation"
 const AUTOSAVE_SECONDS := 5.0
@@ -48,13 +48,16 @@ const EXPORT_SIZES := [
 const DEFAULT_EXPORT_SIZE := "720"
 
 # Lighting: three lamps with fixed roles. LIGHT_INFO: [name, lamp label, tooltip].
-const LIGHT_ROLES := ["key", "fill", "back"]
+const LIGHT_ROLES := ["key", "fill", "back", "bg"]
 const LIGHT_INFO := {
 	"key": ["Key", "KEY", "The key light: the main light. It sets the mood and makes the strongest shadows."],
 	"fill": ["Fill", "FILL", "The fill light: a softer light from the other side that fills in the key light's shadows."],
 	"back": ["Back", "BACK", "The back light: shines from behind to outline the subject and separate it from the background."],
+	"bg": ["Background", "BACKGROUND", "The background light: lights the backdrop, not the subject. Use it to make the backdrop glow, or with a gel to color it."],
 }
-const LIGHT_SPREAD := {"key": 40.0, "fill": 55.0, "back": 38.0}   # spot angle in degrees
+const LIGHT_SPREAD := {"key": 40.0, "fill": 55.0, "back": 38.0, "bg": 75.0}   # spot angle in degrees
+# The background light always points here (the middle of the backdrop), wherever it's moved.
+const BG_LIGHT_AIM := Vector3(0, 1.5, -2.4)
 const GELS := {
 	"none": ["No gel", Color(1, 1, 1)], "red": ["Red", Color(1.0, 0.25, 0.2)], "orange": ["Orange", Color(1.0, 0.55, 0.2)],
 	"yellow": ["Yellow", Color(1.0, 0.9, 0.35)], "green": ["Green", Color(0.35, 1.0, 0.4)],
@@ -70,33 +73,76 @@ const LAMP_MIN_HEIGHT := 0.15
 const LAMP_MAX_HEIGHT := 4.0
 const LAMP_PICK_RADIUS := 0.2
 # Mood presets. Each lamp: offset from the aim point across the table (x, z), with y as the lamp's height.
+# The background lamp ("bg") is different: its offset is its actual spot, since it always points at the backdrop.
 const LIGHT_PRESETS := {
 	"three_point": {"name": "Three-Point", "tip": "The standard setup: a key light, a softer fill, and a back light. Clear and natural.", "room": 45,
 		"key": {"on": true, "brightness": 70, "temp": 4200, "offset": Vector3(2.0, 2.4, 2.2)},
 		"fill": {"on": true, "brightness": 30, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
-		"back": {"on": true, "brightness": 60, "temp": 5600, "offset": Vector3(0.4, 2.6, -1.8)}},
+		"back": {"on": true, "brightness": 60, "temp": 5600, "offset": Vector3(0.4, 2.6, -1.8)},
+		"bg": {"on": true, "brightness": 40, "temp": 5600, "offset": Vector3(0.0, 0.3, -1.25)}},
 	"high_key": {"name": "High-Key", "tip": "Bright and even, with few shadows. Feels cheerful: comedies, commercials, sitcoms.", "room": 95,
 		"key": {"on": true, "brightness": 55, "temp": 5000, "offset": Vector3(0.5, 2.0, 3.2)},
 		"fill": {"on": true, "brightness": 70, "temp": 5600, "offset": Vector3(-1.4, 1.8, 3.0)},
-		"back": {"on": true, "brightness": 40, "temp": 5600, "offset": Vector3(0.0, 2.6, -1.8)}},
+		"back": {"on": true, "brightness": 40, "temp": 5600, "offset": Vector3(0.0, 2.6, -1.8)},
+		"bg": {"on": true, "brightness": 40, "temp": 5600, "offset": Vector3(0.0, 0.3, -1.25)}},
 	"low_key": {"name": "Low-Key", "tip": "Dark, with deep shadows and one strong light. Feels dramatic or mysterious: film noir, thrillers.", "room": 10,
 		"key": {"on": true, "brightness": 80, "temp": 3600, "offset": Vector3(2.6, 2.2, 0.8)},
 		"fill": {"on": true, "brightness": 8, "temp": 6000, "offset": Vector3(-2.4, 1.4, 2.4)},
-		"back": {"on": true, "brightness": 70, "temp": 5600, "offset": Vector3(-0.6, 2.6, -1.8)}},
+		"back": {"on": true, "brightness": 70, "temp": 5600, "offset": Vector3(-0.6, 2.6, -1.8)},
+		"bg": {"on": true, "brightness": 15, "temp": 3600, "offset": Vector3(0.0, 0.3, -1.25)}},
 	"side": {"name": "Side Light", "tip": "Light from one side only, so half the face is in shadow. Feels secretive or torn between two sides.", "room": 8,
 		"key": {"on": true, "brightness": 85, "temp": 4200, "offset": Vector3(2.8, 1.2, 0.0)},
 		"fill": {"on": false, "brightness": 20, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
-		"back": {"on": true, "brightness": 35, "temp": 5600, "offset": Vector3(-0.4, 2.6, -1.8)}},
+		"back": {"on": true, "brightness": 35, "temp": 5600, "offset": Vector3(-0.4, 2.6, -1.8)},
+		"bg": {"on": false, "brightness": 20, "temp": 5600, "offset": Vector3(0.0, 0.3, -1.25)}},
 	"under": {"name": "Under Light", "tip": "Light from below the face, which never happens in nature. Feels creepy: horror, campfire stories.", "room": 10,
 		"key": {"on": true, "brightness": 80, "temp": 4500, "offset": Vector3(0.4, 0.15, 1.6)},
 		"fill": {"on": false, "brightness": 20, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
-		"back": {"on": false, "brightness": 40, "temp": 5600, "offset": Vector3(0.4, 2.6, -1.8)}},
-	"silhouette": {"name": "Silhouette", "tip": "Only a back light, so the subject is a dark shape with a bright outline. Feels mysterious; hides who someone is.", "room": 0,
+		"back": {"on": false, "brightness": 40, "temp": 5600, "offset": Vector3(0.4, 2.6, -1.8)},
+		"bg": {"on": false, "brightness": 30, "temp": 5600, "offset": Vector3(0.0, 0.3, -1.25)}},
+	"silhouette": {"name": "Silhouette", "tip": "A bright backdrop and no light on the front of the subject, so it's a dark shape. Feels mysterious; hides who someone is.", "room": 0,
 		"key": {"on": false, "brightness": 70, "temp": 4200, "offset": Vector3(2.0, 2.4, 2.2)},
 		"fill": {"on": false, "brightness": 30, "temp": 6000, "offset": Vector3(-2.4, 1.5, 2.4)},
-		"back": {"on": true, "brightness": 100, "temp": 5600, "offset": Vector3(0.0, 2.0, -1.9)}},
+		"back": {"on": true, "brightness": 45, "temp": 5600, "offset": Vector3(0.0, 2.0, -1.9)},
+		"bg": {"on": true, "brightness": 100, "temp": 5600, "offset": Vector3(0.0, 0.3, -1.25)}},
 }
 const SHOT_LABEL_MAX := 40
+
+# Backdrops and floors (see the backdrops section). Paper: [name, color]. Scenes: [name, ground color for a matching floor].
+const PAPER_COLORS := {
+	"white": ["White", Color(0.93, 0.93, 0.9)], "gray": ["Gray", Color(0.55, 0.55, 0.57)],
+	"black": ["Black", Color(0.06, 0.06, 0.07)], "sky": ["Sky Blue", Color(0.55, 0.7, 0.82)],
+	"yellow": ["Yellow", Color(0.98, 0.82, 0.3)], "red": ["Red", Color(0.8, 0.22, 0.2)],
+	"purple": ["Purple", Color(0.45, 0.3, 0.65)], "mint": ["Mint", Color(0.6, 0.85, 0.7)],
+}
+const BACKDROP_SCENES := {
+	"sunny": ["Sunny Day", Color(0.3, 0.58, 0.28)], "sunset": ["Sunset", Color(0.24, 0.16, 0.27)],
+	"night": ["Night Sky", Color(0.06, 0.08, 0.16)], "city": ["City", Color(0.42, 0.42, 0.44)],
+	"city_night": ["City at Night", Color(0.12, 0.12, 0.15)], "room": ["Room", Color(0.55, 0.37, 0.21)],
+	"underwater": ["Underwater", Color(0.72, 0.64, 0.43)],
+}
+# Floors: [name, tooltip, texture scale (bigger = smaller pattern)].
+const FLOORS := {
+	"table": ["Wooden table", "The studio's wooden tabletop.", 1.0],
+	"paper": ["Paper (matches the backdrop)", "The backdrop's paper continues under the characters, so there's no line where the wall meets the floor.", 1.0],
+	"grass": ["Grass", "A grassy field.", 0.8],
+	"sand": ["Sand", "A beach or desert.", 0.7],
+	"pavement": ["Pavement", "A sidewalk or street.", 0.5],
+	"wood": ["Wood floor", "Wooden floorboards, like inside a house.", 0.35],
+	"snow": ["Snow", "A snowy ground.", 0.5],
+	"green": ["Green screen", "Pure green for keying out in Premiere (Ultra Key), so you can put any ground behind your characters.", 1.0],
+}
+const CHROMA_GREEN := Color(0.0, 0.69, 0.25)
+const TABLE_COLOR := Color(0.45, 0.32, 0.22)
+const DEFAULT_BACKDROP := "paper:sky"
+const DEFAULT_FLOOR := "table"
+const BACKDROP_PICTURE_SIZE := Vector2i(1920, 1080)
+const MAX_BACKDROP_PICTURES := 12
+const SWEEP_WIDTH := 11.0
+const SWEEP_TOP := 3.8
+const SWEEP_Z := -2.4
+const SWEEP_RADIUS := 0.9
+const SWEEP_PICTURE_WIDTH := 7.2   # a picture backdrop covers this much of the sweep's width
 
 # What students can add to the scene.
 const CHARACTER_TYPES := {"kid": "Kid", "man": "Man", "woman": "Woman", "dog": "Dog", "cat": "Cat"}
@@ -162,6 +208,30 @@ var shot_size := "wide"
 var shot_angle := 0.0
 var camera_warned := false
 
+# Backdrops and floors (see the backdrops section).
+var sweep: MeshInstance3D
+var sweep_mat: StandardMaterial3D
+var floor_mesh: MeshInstance3D           # the tabletop
+var floor_mat: StandardMaterial3D
+var chroma_mat: StandardMaterial3D       # green screen: unshaded, so lights and shadows never change it
+var backdrop_textures: Dictionary = {}   # backdrop key -> texture (scenes and pictures, made when first needed)
+var floor_textures: Dictionary = {}
+var backdrop_pictures: Dictionary = {}   # id -> {name, b64 (JPG)}: students' pictures, saved with the project
+var picture_thumbs: Dictionary = {}      # id -> small texture for the panel
+var picture_floor_colors: Dictionary = {}
+var next_picture := 1
+var backdrop_panel: PanelContainer
+var backdrop_scroll: ScrollContainer
+var backdrop_box: VBoxContainer
+var backdrop_title: Label
+var backdrop_buttons: Dictionary = {}    # backdrop key -> Button
+var picture_grid: GridContainer
+var remove_picture_button: Button
+var floor_option: OptionButton
+var backdrop_ui_updating := false
+var js_image_callback: JavaScriptObject
+var image_dialog: FileDialog
+
 # Lighting (see the lighting section).
 var world_environment: Environment
 var light_nodes: Dictionary = {}       # role -> SpotLight3D
@@ -179,6 +249,7 @@ var light_room_slider: HSlider
 var light_role_buttons: Dictionary = {}
 var light_role := "key"                # the lamp the panel is showing
 var light_on_check: CheckButton
+var light_role_info: Label
 var light_brightness_slider: HSlider
 var light_temp_slider: HSlider
 var light_gel_option: OptionButton
@@ -338,7 +409,7 @@ func _ready() -> void:
 	_build_shot_camera()
 	shots.append(_make_shot())
 	_bind_active_shot()
-	_apply_lighting(_lighting())
+	_apply_look(shots[active_shot])
 	selected_figure = _spawn("kid", "", Vector3.ZERO)
 	_build_ui()
 	get_viewport().size_changed.connect(_on_viewport_resized)
@@ -375,29 +446,36 @@ func _build_environment() -> void:
 
 
 func _build_set() -> void:
-	# Tabletop, deep enough for the tripod to stand on.
-	var table := MeshInstance3D.new()
+	# Tabletop, deep enough for the tripod to stand on, and as wide as the backdrop. Each shot's floor choice
+	# sets its look. Patterned floors are laid out in world space, so they never stretch.
+	floor_mesh = MeshInstance3D.new()
 	var table_mesh := BoxMesh.new()
-	table_mesh.size = Vector3(7.0, 0.2, 6.5)
-	table.mesh = table_mesh
-	table.position = Vector3(0, -0.1, 0.9)
-	var table_mat := StandardMaterial3D.new()
-	table_mat.albedo_color = Color(0.45, 0.32, 0.22)
-	table_mat.roughness = 0.75
-	table.material_override = table_mat
-	add_child(table)
+	table_mesh.size = Vector3(SWEEP_WIDTH, 0.2, 6.5)
+	floor_mesh.mesh = table_mesh
+	floor_mesh.position = Vector3(0, -0.1, 0.9)
+	floor_mat = StandardMaterial3D.new()
+	floor_mat.albedo_color = TABLE_COLOR
+	floor_mat.roughness = 0.75
+	floor_mat.uv1_triplanar = true
+	floor_mat.uv1_world_triplanar = true
+	floor_mesh.material_override = floor_mat
+	add_child(floor_mesh)
 
-	# Painted backdrop behind the puppet.
-	var backdrop := MeshInstance3D.new()
-	var backdrop_mesh := BoxMesh.new()
-	backdrop_mesh.size = Vector3(7.0, 3.6, 0.1)
-	backdrop.mesh = backdrop_mesh
-	backdrop.position = Vector3(0, 1.8, -2.3)
-	var backdrop_mat := StandardMaterial3D.new()
-	backdrop_mat.albedo_color = Color(0.55, 0.7, 0.82)
-	backdrop_mat.roughness = 0.95
-	backdrop.material_override = backdrop_mat
-	add_child(backdrop)
+	# The backdrop: a curved paper sweep behind the table.
+	sweep = _build_sweep()
+	sweep_mat = StandardMaterial3D.new()
+	sweep_mat.albedo_color = PAPER_COLORS["sky"][1]
+	sweep_mat.roughness = 0.95
+	sweep_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	sweep_mat.texture_repeat = false
+	sweep.material_override = sweep_mat
+	add_child(sweep)
+
+	# Green screen: pure green that lights and shadows don't change, so it keys out cleanly.
+	chroma_mat = StandardMaterial3D.new()
+	chroma_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	chroma_mat.albedo_color = CHROMA_GREEN
+	chroma_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 
 func _clay_material(color: Color) -> StandardMaterial3D:
@@ -1220,6 +1298,11 @@ func _undo() -> void:
 	var pose: Dictionary = undo_stack.pop_back()
 	if pose.has("restore_shot"):
 		_restore_deleted_shot(pose["restore_shot"], int(pose["index"]))
+		return
+	if pose.has("set"):
+		shots[active_shot]["set"] = pose["set"]
+		_set_changed()
+		_flash_status("Undid the last backdrop or floor change.")
 		return
 	if pose.has("lighting"):
 		shots[active_shot]["lighting"] = pose["lighting"]
@@ -2392,7 +2475,7 @@ func _process(delta: float) -> void:
 			_autosave()
 
 	fps_label.text = "FPS: %d" % Engine.get_frames_per_second()
-	_fit_lighting_panel()
+	_fit_side_panels()
 
 	if status_timer > 0.0:
 		status_timer -= delta
@@ -2448,14 +2531,17 @@ func _process(delta: float) -> void:
 
 ## lighting: the shot's lighting setup ({} for the default). light_locked: lighting can't change until
 ## unlocked. relight: its lighting changed since its frames' pictures were made.
-func _make_shot(label: String = "", lighting: Dictionary = {}) -> Dictionary:
+## set_data: the shot's backdrop and floor ({} for the default).
+func _make_shot(label: String = "", lighting: Dictionary = {}, set_data: Dictionary = {}) -> Dictionary:
 	var poses: Array[Dictionary] = []
 	var textures: Array[ImageTexture] = []
 	var undo: Array[Dictionary] = []
 	if lighting.is_empty():
 		lighting = _make_lighting(DEFAULT_LIGHT_PRESET, DEFAULT_LIGHT_AIM)
+	if set_data.is_empty():
+		set_data = {"backdrop": DEFAULT_BACKDROP, "floor": DEFAULT_FLOOR}
 	return {"label": label, "poses": poses, "textures": textures, "undo": undo, "working": {},
-		"lighting": lighting, "light_locked": false, "relight": false}
+		"lighting": lighting, "light_locked": false, "relight": false, "set": set_data}
 
 
 ## Points frame_poses, frame_textures, and undo_stack at the active shot's own arrays,
@@ -2489,8 +2575,9 @@ func _load_shot_scene() -> void:
 		pose = frame_poses[frame_poses.size() - 1]
 	if not pose.is_empty():
 		_apply_pose(pose)
-	_apply_lighting(shot["lighting"])
+	_apply_look(shot)
 	_refresh_lighting_panel()
+	_refresh_backdrop_panel()
 	camera_warned = false
 	shot_label_edit.text = str(shot["label"])
 	_update_shot_title()
@@ -2532,10 +2619,12 @@ func _new_shot(from_warning: bool = false) -> void:
 	var from_name := "Shot %d" % (active_shot + 1)
 	# The new shot starts with the same lighting, unlocked until its first capture.
 	var lighting: Dictionary = _lighting().duplicate(true)
+	var set_data: Dictionary = _shot_set().duplicate()
 	active_shot += 1
-	shots.insert(active_shot, _make_shot("", lighting))
+	shots.insert(active_shot, _make_shot("", lighting, set_data))
 	_bind_active_shot()
 	_refresh_lighting_panel()
+	_refresh_backdrop_panel()
 	camera_warned = false
 	shot_label_edit.text = ""
 	_update_shot_title()
@@ -2797,8 +2886,9 @@ func _make_lighting(preset_key: String, aim: Vector3) -> Dictionary:
 	for role in LIGHT_ROLES:
 		var p: Dictionary = preset[role]
 		var offset: Vector3 = p["offset"]
+		var pos := offset if role == "bg" else Vector3(aim.x + offset.x, offset.y, aim.z + offset.z)
 		lights[role] = {"on": p["on"], "brightness": float(p["brightness"]), "temp": int(p["temp"]),
-			"gel": str(p.get("gel", "none")), "pos": _clamp_lamp(Vector3(aim.x + offset.x, offset.y, aim.z + offset.z))}
+			"gel": str(p.get("gel", "none")), "pos": _clamp_lamp(pos)}
 	return {"preset": preset_key, "room": float(preset["room"]), "aim": aim, "lights": lights}
 
 
@@ -2813,6 +2903,9 @@ func _clean_lighting(raw: Variant) -> Dictionary:
 	setup["preset"] = str(saved.get("preset", "custom"))
 	setup["room"] = clampf(float(saved.get("room", setup["room"])), 0.0, 100.0)
 	var saved_lights: Variant = saved.get("lights")
+	# Lighting saved before the background light existed keeps its old look: background light off.
+	if typeof(saved_lights) != TYPE_DICTIONARY or not (saved_lights as Dictionary).has("bg"):
+		setup["lights"]["bg"]["on"] = false
 	if typeof(saved_lights) == TYPE_DICTIONARY:
 		for role in LIGHT_ROLES:
 			var info: Variant = (saved_lights as Dictionary).get(role)
@@ -2868,11 +2961,12 @@ func _apply_lighting(setup: Dictionary) -> void:
 		var spot: SpotLight3D = light_nodes[role]
 		var pos: Vector3 = light["pos"]
 		spot.position = pos
-		var to_aim := aim - pos
+		var target: Vector3 = BG_LIGHT_AIM if role == "bg" else aim
+		var to_aim := target - pos
 		if to_aim.length() > 0.01:
 			# look_at can't use "up" when a lamp points straight down.
 			var up := Vector3.FORWARD if absf(to_aim.normalized().y) > 0.98 else Vector3.UP
-			spot.look_at(aim, up)
+			spot.look_at(target, up)
 		spot.spot_range = to_aim.length() + 6.0
 		spot.visible = light["on"]
 		spot.light_energy = float(light["brightness"]) * LIGHT_ENERGY_SCALE
@@ -2937,12 +3031,12 @@ func _relight_if_needed() -> void:
 	await RenderingServer.frame_post_draw
 	var done := 0
 	for s in waiting:
-		_apply_lighting(shots[s]["lighting"])
+		_apply_look(shots[s])
 		var poses: Array[Dictionary] = shots[s]["poses"]
 		var textures: Array[ImageTexture] = shots[s]["textures"]
 		for i in poses.size():
 			done += 1
-			busy_label.text = "Relighting Shot %d: frame %d of %d" % [s + 1, done, total]
+			busy_label.text = "Updating Shot %d's frames: %d of %d" % [s + 1, done, total]
 			_apply_pose(poses[i])
 			await RenderingServer.frame_post_draw
 			textures[i] = ImageTexture.create_from_image(_keep_size(shot_viewport.get_texture().get_image()))
@@ -2976,6 +3070,8 @@ func _center_lights_on_selected() -> void:
 	var old_aim: Vector3 = setup["aim"]
 	var shift := Vector3(target.x - old_aim.x, 0.0, target.z - old_aim.z)
 	for role in LIGHT_ROLES:
+		if role == "bg":
+			continue   # The background light stays aimed at the backdrop.
 		var light: Dictionary = setup["lights"][role]
 		light["pos"] = _clamp_lamp((light["pos"] as Vector3) + shift)
 	setup["aim"] = target
@@ -3156,7 +3252,16 @@ func _build_lighting_panel(parent: Control) -> void:
 		_push_light_undo()
 		_lighting()["lights"][light_role]["on"] = on
 		_lighting_changed())
-	role_row.add_child(light_on_check)
+	var on_row := HBoxContainer.new()
+	on_row.add_theme_constant_override("separation", 10)
+	box.add_child(on_row)
+	on_row.add_child(light_on_check)
+	light_role_info = Label.new()
+	light_role_info.add_theme_font_size_override("font_size", 12)
+	light_role_info.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	light_role_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	light_role_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	on_row.add_child(light_role_info)
 	light_controls.append(light_on_check)
 
 	light_brightness_slider = _add_light_slider(box, "Brightness", "How strong this light is.", 0.0, 100.0, 1.0)
@@ -3206,22 +3311,43 @@ func _build_lighting_panel(parent: Control) -> void:
 	box.add_child(HSeparator.new())
 	var button_row := HBoxContainer.new()
 	box.add_child(button_row)
-	light_controls.append(_add_button(button_row, "Center on Selected", "Move all three lights so they point at the selected character or prop.", _center_lights_on_selected))
+	light_controls.append(_add_button(button_row, "Center on Selected", "Move the key, fill, and back lights so they point at the selected character or prop. The background light stays on the backdrop.", _center_lights_on_selected))
 	_add_button(button_row, "Apply to All Shots", "Give every shot this shot's lighting, so the lighting matches from shot to shot (continuity).", _apply_lighting_to_all_pressed)
 	_select_light_role("key")
 
 
-## Keeps the Lighting panel above the shot strip: on short screens it gets a scroll bar instead of
-## sliding underneath. Checked every frame while open, since other panels above it can open and close.
-func _fit_lighting_panel() -> void:
-	if lighting_panel == null or not lighting_panel.visible:
+## Keeps the Backdrop and Lighting panels above the shot strip: on short screens they get scroll bars
+## instead of sliding underneath, and when both are open they share the space. Checked every frame,
+## since other panels above them can open and close.
+func _fit_side_panels() -> void:
+	if lighting_panel == null or backdrop_panel == null:
 		return
-	var want := lighting_box.get_combined_minimum_size().y
-	var top := lighting_scroll.get_global_rect().position.y
+	var open: Array = []
+	for entry in [[backdrop_panel, backdrop_scroll, backdrop_box], [lighting_panel, lighting_scroll, lighting_box]]:
+		if (entry[0] as Control).visible:
+			open.append(entry)
+	if open.is_empty():
+		return
+	var top := (open[0][1] as Control).get_global_rect().position.y
 	var bottom := shot_strip.get_global_rect().position.y - 18.0
-	var h := floorf(clampf(bottom - top, minf(want, 140.0), want))
-	if not is_equal_approx(lighting_scroll.custom_minimum_size.y, h):
-		lighting_scroll.custom_minimum_size = Vector2(0, h)
+	# Each panel's own padding, plus the gap between two panels.
+	var room := bottom - top - 26.0 * float(open.size() - 1)
+	var wants: Array[float] = []
+	for entry in open:
+		wants.append((entry[2] as Control).get_combined_minimum_size().y)
+	var heights: Array[float] = []
+	if open.size() == 1:
+		heights.append(room)
+	else:
+		# The first panel gets half, or more if the second doesn't need its half.
+		var first := minf(wants[0], maxf(room * 0.5, room - wants[1]))
+		heights.append(first)
+		heights.append(room - first)
+	for i in open.size():
+		var scroll: ScrollContainer = open[i][1]
+		var h := floorf(clampf(heights[i], minf(wants[i], 120.0), wants[i]))
+		if not is_equal_approx(scroll.custom_minimum_size.y, h):
+			scroll.custom_minimum_size = Vector2(0, h)
 
 
 ## A slider with its label (and value) on the same line. Drags count as one undo step.
@@ -3289,6 +3415,7 @@ func _refresh_lighting_panel() -> void:
 	light_room_slider.value = float(setup["room"])
 	var light: Dictionary = setup["lights"][light_role]
 	light_on_check.button_pressed = light["on"]
+	light_role_info.text = LIGHT_INFO[light_role][2]
 	light_brightness_slider.value = float(light["brightness"])
 	light_temp_slider.value = float(light["temp"])
 	light_gel_option.select(GELS.keys().find(str(light["gel"])))
@@ -3317,6 +3444,688 @@ func _update_light_slider_titles() -> void:
 	for slider in values:
 		var title_label: Label = (slider as Slider).get_meta("title_label")
 		title_label.text = "%s: %s" % [light_slider_titles[title_label], values[slider]]
+
+
+# ---------------------------------------------------------------- backdrops and floors
+# Each shot has a set: {backdrop, floor}. backdrop is "paper:<color>", "scene:<name>", "picture:<id>", or "green".
+# Like lighting, the set belongs to the shot, so changing it changes every frame in the shot together.
+# Students' pictures (Make a Backdrop) live in backdrop_pictures and are saved once in the project file.
+
+## The curved paper sweep: a wall that curves down onto the table, so there's no seam or horizon line.
+## A picture backdrop covers the middle SWEEP_PICTURE_WIDTH (about what a wide shot sees); past that its edges carry on.
+func _build_sweep() -> MeshInstance3D:
+	var profile: Array[Vector2] = []   # (y, z) points from the top of the wall down to the table
+	var normals: Array[Vector2] = []
+	profile.append(Vector2(SWEEP_TOP, SWEEP_Z))
+	normals.append(Vector2(0, 1))
+	var steps := 16
+	for i in steps + 1:
+		var a := (PI * 0.5) * float(i) / float(steps)
+		profile.append(Vector2(SWEEP_RADIUS - SWEEP_RADIUS * sin(a), SWEEP_Z + SWEEP_RADIUS - SWEEP_RADIUS * cos(a)))
+		normals.append(Vector2(sin(a), cos(a)))
+	var lengths: Array[float] = [0.0]
+	for i in range(1, profile.size()):
+		lengths.append(lengths[i - 1] + profile[i].distance_to(profile[i - 1]))
+	var total: float = lengths[lengths.size() - 1]
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var half := SWEEP_WIDTH * 0.5
+	for i in profile.size():
+		for x in [-half, half]:
+			# A hair above the table, so the two never flicker where they meet.
+			verts.append(Vector3(x, profile[i].x + 0.003, profile[i].y))
+			norms.append(Vector3(0, normals[i].x, normals[i].y))
+			uvs.append(Vector2(x / SWEEP_PICTURE_WIDTH + 0.5, lengths[i] / total))
+	var indices := PackedInt32Array()
+	for i in profile.size() - 1:
+		var a0 := i * 2
+		indices.append_array([a0, a0 + 1, a0 + 2, a0 + 1, a0 + 3, a0 + 2])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	return mi
+
+
+func _clean_set(raw: Variant) -> Dictionary:
+	var set_data := {"backdrop": DEFAULT_BACKDROP, "floor": DEFAULT_FLOOR}
+	if typeof(raw) != TYPE_DICTIONARY:
+		return set_data
+	var saved: Dictionary = raw
+	var backdrop := str(saved.get("backdrop", DEFAULT_BACKDROP))
+	if _backdrop_exists(backdrop):
+		set_data["backdrop"] = backdrop
+	var floor_key := str(saved.get("floor", DEFAULT_FLOOR))
+	if FLOORS.has(floor_key):
+		set_data["floor"] = floor_key
+	return set_data
+
+
+func _backdrop_exists(key: String) -> bool:
+	if key == "green":
+		return true
+	if key.begins_with("paper:"):
+		return PAPER_COLORS.has(key.trim_prefix("paper:"))
+	if key.begins_with("scene:"):
+		return BACKDROP_SCENES.has(key.trim_prefix("scene:"))
+	if key.begins_with("picture:"):
+		return backdrop_pictures.has(key.trim_prefix("picture:"))
+	return false
+
+
+func _backdrop_name(key: String) -> String:
+	if key == "green":
+		return "Green Screen"
+	if key.begins_with("paper:"):
+		return "%s paper" % PAPER_COLORS[key.trim_prefix("paper:")][0]
+	if key.begins_with("scene:"):
+		return str(BACKDROP_SCENES[key.trim_prefix("scene:")][0])
+	if key.begins_with("picture:") and backdrop_pictures.has(key.trim_prefix("picture:")):
+		return "your picture \"%s\"" % backdrop_pictures[key.trim_prefix("picture:")]["name"]
+	return "backdrop"
+
+
+func _shot_set() -> Dictionary:
+	return shots[active_shot]["set"]
+
+
+## Puts a shot's lighting and set (backdrop and floor) on the stage.
+func _apply_look(shot: Dictionary) -> void:
+	_apply_lighting(shot["lighting"])
+	_apply_set(shot["set"])
+
+
+func _apply_set(set_data: Dictionary) -> void:
+	var backdrop := str(set_data["backdrop"])
+	if backdrop == "green":
+		sweep.material_override = chroma_mat
+	else:
+		sweep.material_override = sweep_mat
+		if backdrop.begins_with("paper:"):
+			sweep_mat.albedo_texture = null
+			sweep_mat.albedo_color = PAPER_COLORS[backdrop.trim_prefix("paper:")][1]
+		else:
+			sweep_mat.albedo_texture = _backdrop_texture(backdrop)
+			sweep_mat.albedo_color = Color(1, 1, 1)
+	var floor_key := str(set_data["floor"])
+	if floor_key == "green" or (floor_key == "paper" and backdrop == "green"):
+		floor_mesh.material_override = chroma_mat
+		return
+	floor_mesh.material_override = floor_mat
+	match floor_key:
+		"table":
+			floor_mat.albedo_texture = null
+			floor_mat.albedo_color = TABLE_COLOR
+		"paper":
+			floor_mat.albedo_texture = null
+			floor_mat.albedo_color = _backdrop_floor_color(backdrop)
+		_:
+			floor_mat.albedo_texture = _floor_texture(floor_key)
+			floor_mat.albedo_color = Color(1, 1, 1)
+			var scale_by: float = FLOORS[floor_key][2]
+			floor_mat.uv1_scale = Vector3(scale_by, scale_by, scale_by)
+
+
+## The color a "Paper (matches the backdrop)" floor uses: the paper color, or the ground color of a scene or picture.
+func _backdrop_floor_color(backdrop: String) -> Color:
+	if backdrop.begins_with("paper:"):
+		return PAPER_COLORS[backdrop.trim_prefix("paper:")][1]
+	if backdrop.begins_with("scene:"):
+		return BACKDROP_SCENES[backdrop.trim_prefix("scene:")][1]
+	if backdrop.begins_with("picture:"):
+		var id := backdrop.trim_prefix("picture:")
+		_backdrop_texture(backdrop)   # Works out the picture's ground color the first time.
+		return picture_floor_colors.get(id, TABLE_COLOR)
+	return TABLE_COLOR
+
+
+## The picture for a scene or a student's picture, made the first time it's needed.
+func _backdrop_texture(backdrop: String) -> Texture2D:
+	if backdrop_textures.has(backdrop):
+		return backdrop_textures[backdrop]
+	var img: Image
+	if backdrop.begins_with("scene:"):
+		img = _draw_scene(backdrop.trim_prefix("scene:"), BACKDROP_PICTURE_SIZE)
+	else:
+		var id := backdrop.trim_prefix("picture:")
+		img = Image.new()
+		if not backdrop_pictures.has(id) or img.load_jpg_from_buffer(Marshalls.base64_to_raw(str(backdrop_pictures[id]["b64"]))) != OK:
+			img = Image.create(16, 9, false, Image.FORMAT_RGB8)
+			img.fill(PAPER_COLORS["sky"][1])
+		picture_floor_colors[id] = _bottom_color(img)
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	backdrop_textures[backdrop] = tex
+	return tex
+
+
+## The average color along the bottom of a picture (its "ground"), for a matching paper floor.
+func _bottom_color(img: Image) -> Color:
+	var strip := img.get_region(Rect2i(0, int(img.get_height() * 0.85), img.get_width(), maxi(1, int(img.get_height() * 0.15))))
+	strip.convert(Image.FORMAT_RGB8)
+	strip.resize(16, 4, Image.INTERPOLATE_BILINEAR)
+	var sum := Color(0, 0, 0)
+	for y in 4:
+		for x in 16:
+			sum += strip.get_pixel(x, y)
+	return Color(sum.r / 64.0, sum.g / 64.0, sum.b / 64.0)
+
+
+func _floor_texture(key: String) -> Texture2D:
+	if floor_textures.has(key):
+		return floor_textures[key]
+	var tex: Texture2D
+	match key:
+		"grass":
+			tex = _noise_floor([Color(0.18, 0.4, 0.14), Color(0.3, 0.56, 0.22), Color(0.42, 0.68, 0.3)], 0.09)
+		"sand":
+			tex = _noise_floor([Color(0.76, 0.65, 0.44), Color(0.85, 0.75, 0.54), Color(0.92, 0.84, 0.64)], 0.05)
+		"pavement":
+			tex = _noise_floor([Color(0.3, 0.3, 0.32), Color(0.43, 0.43, 0.45), Color(0.55, 0.55, 0.56)], 0.14)
+		"snow":
+			tex = _noise_floor([Color(0.82, 0.86, 0.94), Color(0.93, 0.95, 0.99), Color(1, 1, 1)], 0.03)
+		_:
+			tex = _wood_floor()
+	floor_textures[key] = tex
+	return tex
+
+
+func _noise_floor(colors: Array, frequency: float) -> Texture2D:
+	var noise := FastNoiseLite.new()
+	noise.frequency = frequency
+	noise.fractal_octaves = 4
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	ramp.colors = PackedColorArray(colors)
+	var tex := NoiseTexture2D.new()
+	tex.width = 256
+	tex.height = 256
+	tex.seamless = true
+	tex.generate_mipmaps = true
+	tex.noise = noise
+	tex.color_ramp = ramp
+	return tex
+
+
+## Wooden floorboards: rows of planks in slightly different browns, with dark seams and a little grain.
+func _wood_floor() -> Texture2D:
+	var size := 256
+	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var plank_h := 32
+	for row in size / plank_h:
+		var x := -rng.randi_range(0, 120)
+		while x < size:
+			var length := rng.randi_range(90, 170)
+			var shade := rng.randf_range(-0.06, 0.06)
+			var base := Color(0.55 + shade, 0.37 + shade * 0.8, 0.21 + shade * 0.5)
+			img.fill_rect(Rect2i(x, row * plank_h, length, plank_h), base)
+			for _line in 5:
+				var gy := row * plank_h + rng.randi_range(3, plank_h - 4)
+				img.fill_rect(Rect2i(x, gy, length, 1), base.darkened(0.12))
+			img.fill_rect(Rect2i(x, row * plank_h, 2, plank_h), base.darkened(0.45))
+			x += length
+		img.fill_rect(Rect2i(0, row * plank_h, size, 2), Color(0.25, 0.16, 0.09))
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+
+# ---- Painted scenes, drawn in code with simple shapes (no outside art).
+
+func _draw_scene(key: String, size: Vector2i) -> Image:
+	var img := Image.create(size.x, size.y, false, Image.FORMAT_RGB8)
+	var w := float(size.x)
+	var h := float(size.y)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(key)
+	match key:
+		"sunny":
+			_paint_gradient(img, 0.0, 0.8, Color(0.38, 0.65, 0.95), Color(0.78, 0.9, 1.0))
+			_paint_circle(img, w * 0.8, h * 0.2, h * 0.08, Color(1.0, 0.9, 0.45))
+			for c in [Vector2(0.2, 0.18), Vector2(0.5, 0.12), Vector2(0.66, 0.3)]:
+				_paint_cloud(img, w * c.x, h * c.y, h * 0.05)
+			_paint_hills(img, 0.62, 0.05, 2.0, 0.3, Color(0.45, 0.7, 0.4))
+			_paint_hills(img, 0.72, 0.04, 3.0, 1.7, Color(0.3, 0.58, 0.28))
+		"sunset":
+			_paint_gradient(img, 0.0, 0.4, Color(0.3, 0.22, 0.48), Color(0.9, 0.45, 0.5))
+			_paint_gradient(img, 0.4, 0.75, Color(0.9, 0.45, 0.5), Color(1.0, 0.75, 0.4))
+			_paint_circle(img, w * 0.5, h * 0.7, h * 0.12, Color(1.0, 0.86, 0.5))
+			_paint_hills(img, 0.68, 0.05, 2.0, 0.9, Color(0.36, 0.22, 0.38))
+			_paint_hills(img, 0.76, 0.03, 3.5, 2.2, Color(0.24, 0.16, 0.27))
+		"night":
+			_paint_gradient(img, 0.0, 0.8, Color(0.02, 0.03, 0.1), Color(0.1, 0.13, 0.3))
+			_paint_stars(img, rng, 0.0, 0.65, 160)
+			_paint_circle(img, w * 0.2, h * 0.2, h * 0.07, Color(0.92, 0.92, 0.8))
+			_paint_circle(img, w * 0.2 + h * 0.035, h * 0.18, h * 0.065, Color(0.03, 0.04, 0.12))
+			_paint_hills(img, 0.7, 0.05, 2.5, 0.4, Color(0.06, 0.08, 0.16))
+		"city":
+			_paint_gradient(img, 0.0, 0.8, Color(0.45, 0.7, 0.95), Color(0.82, 0.9, 1.0))
+			_paint_cloud(img, w * 0.25, h * 0.15, h * 0.045)
+			_paint_buildings(img, rng, Color(0.55, 0.58, 0.64), Color(0.72, 0.82, 0.92), 0.0)
+			img.fill_rect(Rect2i(0, int(h * 0.8), size.x, size.y), Color(0.42, 0.42, 0.44))
+		"city_night":
+			_paint_gradient(img, 0.0, 0.8, Color(0.03, 0.03, 0.1), Color(0.14, 0.12, 0.28))
+			_paint_stars(img, rng, 0.0, 0.35, 60)
+			_paint_buildings(img, rng, Color(0.1, 0.11, 0.16), Color(1.0, 0.85, 0.45), 0.45)
+			img.fill_rect(Rect2i(0, int(h * 0.8), size.x, size.y), Color(0.12, 0.12, 0.15))
+		"room":
+			img.fill_rect(Rect2i(0, 0, size.x, size.y), Color(0.86, 0.78, 0.6))
+			# A window with sky and a hill outside.
+			var wx := int(w * 0.18)
+			var wy := int(h * 0.18)
+			var ww := int(w * 0.26)
+			var wh := int(h * 0.38)
+			var frame := maxi(2, int(h * 0.015))
+			img.fill_rect(Rect2i(wx - frame, wy - frame, ww + frame * 2, wh + frame * 2), Color(0.96, 0.96, 0.94))
+			var sky := Image.create(ww, wh, false, Image.FORMAT_RGB8)
+			_paint_gradient(sky, 0.0, 1.0, Color(0.45, 0.7, 0.95), Color(0.8, 0.9, 1.0))
+			_paint_hills(sky, 0.75, 0.08, 1.5, 0.5, Color(0.35, 0.62, 0.3))
+			img.blit_rect(sky, Rect2i(0, 0, ww, wh), Vector2i(wx, wy))
+			img.fill_rect(Rect2i(wx + ww / 2 - frame / 2, wy, frame, wh), Color(0.96, 0.96, 0.94))
+			img.fill_rect(Rect2i(wx, wy + wh / 2 - frame / 2, ww, frame), Color(0.96, 0.96, 0.94))
+			# A framed picture on the wall.
+			var px := int(w * 0.62)
+			var py := int(h * 0.24)
+			img.fill_rect(Rect2i(px, py, int(w * 0.16), int(h * 0.22)), Color(0.4, 0.26, 0.15))
+			img.fill_rect(Rect2i(px + frame * 2, py + frame * 2, int(w * 0.16) - frame * 4, int(h * 0.22) - frame * 4), Color(0.95, 0.7, 0.35))
+			_paint_circle(img, px + w * 0.08, py + h * 0.11, h * 0.05, Color(0.85, 0.35, 0.3))
+			# Baseboard and wooden floor.
+			img.fill_rect(Rect2i(0, int(h * 0.8), size.x, int(h * 0.04)), Color(0.97, 0.96, 0.92))
+			img.fill_rect(Rect2i(0, int(h * 0.84), size.x, size.y), Color(0.55, 0.37, 0.21))
+		"underwater":
+			_paint_gradient(img, 0.0, 1.0, Color(0.12, 0.58, 0.78), Color(0.02, 0.2, 0.36))
+			for _bubble in 30:
+				var bx := rng.randf_range(0.0, w)
+				var by := rng.randf_range(h * 0.05, h * 0.75)
+				_paint_circle(img, bx, by, rng.randf_range(h * 0.006, h * 0.018), Color(0.6, 0.85, 0.95))
+			_paint_hills(img, 0.82, 0.03, 3.0, 0.6, Color(0.72, 0.64, 0.43))
+			for _weed in 9:
+				_paint_seaweed(img, rng.randf_range(0.03, 0.97) * w, h * rng.randf_range(0.45, 0.62), h * 0.86, maxf(2.0, w * 0.008))
+	return img
+
+
+func _paint_gradient(img: Image, top: float, bottom: float, top_color: Color, bottom_color: Color) -> void:
+	var h := img.get_height()
+	var y0 := int(top * h)
+	var y1 := int(bottom * h)
+	for y in range(y0, y1):
+		var t := float(y - y0) / maxf(1.0, float(y1 - y0))
+		img.fill_rect(Rect2i(0, y, img.get_width(), 1), top_color.lerp(bottom_color, t))
+	# Anything below the gradient gets its bottom color.
+	if bottom >= 1.0 or y1 >= h:
+		return
+	img.fill_rect(Rect2i(0, y1, img.get_width(), h - y1), bottom_color)
+
+
+func _paint_circle(img: Image, cx: float, cy: float, r: float, color: Color) -> void:
+	for dy in range(int(-r), int(r) + 1):
+		var half := sqrt(maxf(0.0, r * r - dy * dy))
+		img.fill_rect(Rect2i(int(cx - half), int(cy + dy), int(half * 2.0) + 1, 1), color)
+
+
+func _paint_cloud(img: Image, cx: float, cy: float, r: float) -> void:
+	for p in [Vector3(-1.4, 0.3, 0.75), Vector3(-0.5, -0.2, 1.0), Vector3(0.6, -0.1, 0.9), Vector3(1.5, 0.3, 0.7), Vector3(0.0, 0.4, 0.9)]:
+		_paint_circle(img, cx + p.x * r, cy + p.y * r, p.z * r, Color(1, 1, 1))
+
+
+## Rolling hills from base (a fraction of the height) down to the bottom of the picture.
+func _paint_hills(img: Image, base: float, amount: float, waves: float, phase: float, color: Color) -> void:
+	var w := img.get_width()
+	var h := float(img.get_height())
+	var step := maxi(1, w / 480)
+	for x in range(0, w, step):
+		var t := float(x) / float(w)
+		var y := h * (base + amount * sin(t * TAU * waves + phase) + amount * 0.4 * sin(t * TAU * waves * 2.3 + phase * 2.0))
+		img.fill_rect(Rect2i(x, int(y), step, img.get_height() - int(y)), color)
+
+
+func _paint_stars(img: Image, rng: RandomNumberGenerator, top: float, bottom: float, count: int) -> void:
+	var dot := maxi(1, img.get_width() / 640)
+	for _star in count:
+		var x := rng.randi_range(0, img.get_width() - 1)
+		var y := rng.randi_range(int(top * img.get_height()), int(bottom * img.get_height()))
+		var big := dot * (2 if rng.randf() < 0.15 else 1)
+		img.fill_rect(Rect2i(x, y, big, big), Color(1, 1, 0.9))
+
+
+## A row of buildings standing on the street line, with windows. lit_chance: how many windows glow (night).
+func _paint_buildings(img: Image, rng: RandomNumberGenerator, wall: Color, window: Color, lit_chance: float) -> void:
+	var w := img.get_width()
+	var h := float(img.get_height())
+	var ground := int(h * 0.8)
+	var x := -rng.randi_range(0, int(w * 0.04))
+	while x < w:
+		var bw := int(w * rng.randf_range(0.07, 0.13))
+		var bh := int(h * rng.randf_range(0.25, 0.6))
+		var shade := rng.randf_range(-0.05, 0.05)
+		var color := Color(wall.r + shade, wall.g + shade, wall.b + shade)
+		img.fill_rect(Rect2i(x, ground - bh, bw - maxi(1, w / 400), bh), color)
+		var win := maxi(2, int(h * 0.025))
+		var gap := maxi(2, int(h * 0.02))
+		var wy := ground - bh + gap
+		while wy + win < ground - gap:
+			var wx := x + gap
+			while wx + win < x + bw - gap:
+				var lit := lit_chance <= 0.0 or rng.randf() < lit_chance
+				img.fill_rect(Rect2i(wx, wy, win, win), window if lit else color.darkened(0.3))
+				wx += win + gap
+			wy += win + gap
+		x += bw
+
+
+func _paint_seaweed(img: Image, x: float, top: float, bottom: float, thickness: float) -> void:
+	for y in range(int(top), int(bottom)):
+		var sway := sin(float(y) * 0.02 + x) * thickness * 2.5
+		img.fill_rect(Rect2i(int(x + sway), y, int(thickness), 1), Color(0.15, 0.5, 0.3))
+
+
+# ---- Choosing a backdrop and floor
+
+func _choose_backdrop(key: String) -> void:
+	_change_set("backdrop", key)
+
+
+func _choose_floor(key: String) -> void:
+	_change_set("floor", key)
+
+
+## Changes the active shot's backdrop or floor. If the shot has frames, asks first, since every frame changes.
+func _change_set(field: String, value: String) -> void:
+	_refresh_backdrop_panel()   # Show the current choice until it's confirmed.
+	var set_data := _shot_set()
+	if str(set_data[field]) == value:
+		return
+	var apply := func() -> void:
+		undo_stack.append({"set": set_data.duplicate()})
+		if undo_stack.size() > MAX_UNDO:
+			undo_stack.pop_front()
+		set_data[field] = value
+		_set_changed()
+		if field == "backdrop" and value == "green" and str(set_data["floor"]) != "green":
+			_flash_status("Green screen: in Premiere, Ultra Key removes the green. Make the floor green too, so the whole set keys out.",
+				8.0, "Make Floor Green", _choose_floor.bind("green"))
+		else:
+			var what := _backdrop_name(value) if field == "backdrop" else str(FLOORS[value][0])
+			_flash_status("%s: %s." % ["Backdrop" if field == "backdrop" else "Floor", what])
+	if frame_poses.is_empty():
+		apply.call()
+		return
+	var count := frame_poses.size()
+	_confirm("This changes the %s in all %d frame%s of Shot %d. Go ahead?" % [
+		field, count, "" if count == 1 else "s", active_shot + 1], apply)
+
+
+func _set_changed() -> void:
+	_apply_set(_shot_set())
+	if not frame_poses.is_empty():
+		shots[active_shot]["relight"] = true
+	_refresh_backdrop_panel()
+
+
+## Forgets the project's pictures (New Project, or before opening another project).
+func _clear_backdrop_pictures() -> void:
+	for key in backdrop_textures.keys():
+		if str(key).begins_with("picture:"):
+			backdrop_textures.erase(key)
+	backdrop_pictures.clear()
+	picture_thumbs.clear()
+	picture_floor_colors.clear()
+	next_picture = 1
+
+
+func _make_backdrop_pressed() -> void:
+	if backdrop_pictures.size() >= MAX_BACKDROP_PICTURES:
+		_flash_status("A project can hold %d pictures. Remove one you don't use first." % MAX_BACKDROP_PICTURES, 5.0)
+		return
+	if OS.has_feature("web"):
+		if not _load_export_tools():
+			_flash_status("Couldn't open the file picker. Try reloading the page.")
+			return
+		var api = JavaScriptBridge.get_interface("vcsExport")
+		api.openImage(js_image_callback)
+		return
+	# Running from the Godot editor: use Godot's own file window.
+	if image_dialog == null:
+		image_dialog = FileDialog.new()
+		image_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+		image_dialog.access = FileDialog.ACCESS_FILESYSTEM
+		image_dialog.use_native_dialog = true
+		image_dialog.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Pictures"])
+		image_dialog.file_selected.connect(func(path: String) -> void:
+			var img := Image.load_from_file(path)
+			if img == null:
+				_flash_status("That picture couldn't be opened. Try a JPG or PNG.", 5.0)
+				return
+			_add_backdrop_picture(path.get_file().get_basename(), img))
+		add_child(image_dialog)
+	image_dialog.popup_centered_ratio(0.6)
+
+
+## The browser's picture picker sends back "image:<name>|<JPG as base64>", "cancel", or "error: <reason>".
+func _on_js_image_opened(args: Array) -> void:
+	var reply := str(args[0]) if args.size() > 0 else ""
+	if reply.begins_with("error"):
+		_flash_status("Couldn't use that picture: " + reply.trim_prefix("error: "), 6.0)
+		return
+	if not reply.begins_with("image:"):
+		return
+	var parts := reply.substr(6).split("|", true, 1)
+	var img := Image.new()
+	if parts.size() < 2 or img.load_jpg_from_buffer(Marshalls.base64_to_raw(parts[1])) != OK:
+		_flash_status("That picture couldn't be opened. Try a JPG or PNG.", 5.0)
+		return
+	_add_backdrop_picture(parts[0].get_basename(), img)
+
+
+## Crops a student's picture to fill the backdrop (16:9), shrinks it, keeps it in the project, and uses it.
+func _add_backdrop_picture(picture_name: String, img: Image) -> void:
+	img.convert(Image.FORMAT_RGB8)
+	var aspect := float(BACKDROP_PICTURE_SIZE.x) / float(BACKDROP_PICTURE_SIZE.y)
+	var w := img.get_width()
+	var h := img.get_height()
+	var crop := Rect2i(0, 0, w, h)
+	if float(w) / float(h) > aspect:
+		crop.size.x = int(h * aspect)
+		crop.position.x = (w - crop.size.x) / 2
+	else:
+		crop.size.y = int(w / aspect)
+		crop.position.y = (h - crop.size.y) / 2
+	img = img.get_region(crop)
+	if img.get_width() > BACKDROP_PICTURE_SIZE.x:
+		img.resize(BACKDROP_PICTURE_SIZE.x, BACKDROP_PICTURE_SIZE.y, Image.INTERPOLATE_CUBIC)
+	var id := "pic%d" % next_picture
+	next_picture += 1
+	var label := picture_name.strip_edges()
+	backdrop_pictures[id] = {"name": label.left(40) if label != "" else "Picture", "b64": Marshalls.raw_to_base64(img.save_jpg_to_buffer(0.85))}
+	_refresh_backdrop_panel()
+	_choose_backdrop("picture:" + id)
+
+
+func _remove_picture_pressed() -> void:
+	var backdrop := str(_shot_set()["backdrop"])
+	if not backdrop.begins_with("picture:"):
+		_flash_status("Pick one of your pictures first, then press Remove Picture.")
+		return
+	var using := 0
+	for shot in shots:
+		if str(shot["set"]["backdrop"]) == backdrop:
+			using += 1
+	_confirm("Remove this picture from your project? %d shot%s using it will go back to Sky Blue paper." % [using, "" if using == 1 else "s"],
+		_remove_picture.bind(backdrop))
+
+
+func _remove_picture(backdrop: String) -> void:
+	for shot in shots:
+		if str(shot["set"]["backdrop"]) == backdrop:
+			shot["set"]["backdrop"] = DEFAULT_BACKDROP
+			if not (shot["poses"] as Array).is_empty():
+				shot["relight"] = true
+		# Undo steps that would bring the picture back can't anymore.
+		var undo: Array[Dictionary] = shot["undo"]
+		undo.assign(undo.filter(func(step: Dictionary) -> bool: return not (step.has("set") and str(step["set"]["backdrop"]) == backdrop)))
+	backdrop_pictures.erase(backdrop.trim_prefix("picture:"))
+	picture_thumbs.erase(backdrop.trim_prefix("picture:"))
+	backdrop_textures.erase(backdrop)
+	_apply_set(_shot_set())
+	_refresh_backdrop_panel()
+	_flash_status("Removed the picture.")
+
+
+# ---- Backdrop panel
+
+func _build_backdrop_panel(parent: Control) -> void:
+	backdrop_panel = PanelContainer.new()
+	backdrop_panel.visible = false
+	backdrop_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	backdrop_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	parent.add_child(backdrop_panel)
+	backdrop_scroll = ScrollContainer.new()
+	backdrop_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	backdrop_panel.add_child(backdrop_scroll)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	box.custom_minimum_size = Vector2(390, 0)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	backdrop_scroll.add_child(box)
+	backdrop_box = box
+
+	backdrop_title = Label.new()
+	backdrop_title.add_theme_font_size_override("font_size", 14)
+	box.add_child(backdrop_title)
+	var note := Label.new()
+	note.text = "The backdrop is the background behind your characters. Changing it changes every frame in this shot."
+	note.add_theme_font_size_override("font_size", 12)
+	note.add_theme_color_override("font_color", Color(0.7, 0.72, 0.78))
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(380, 0)
+	box.add_child(note)
+
+	_add_section_label(box, "Paper", "Colored paper on a curved sweep, like a real tabletop studio. The curve hides the line where the wall meets the floor.")
+	var paper_grid := GridContainer.new()
+	paper_grid.columns = 8
+	box.add_child(paper_grid)
+	for key in PAPER_COLORS:
+		var swatch := Image.create(28, 28, false, Image.FORMAT_RGB8)
+		swatch.fill(PAPER_COLORS[key][1])
+		var b := _make_backdrop_button("paper:" + key, ImageTexture.create_from_image(swatch), "", "%s paper" % PAPER_COLORS[key][0])
+		b.custom_minimum_size = Vector2(42, 42)
+		paper_grid.add_child(b)
+
+	_add_section_label(box, "Scenes", "Simple painted places. Hover over one to see its name.")
+	var scene_grid := GridContainer.new()
+	scene_grid.columns = 4
+	box.add_child(scene_grid)
+	for key in BACKDROP_SCENES:
+		var thumb := _draw_scene(key, Vector2i(160, 90))
+		var b := _make_backdrop_button("scene:" + key, ImageTexture.create_from_image(thumb), str(BACKDROP_SCENES[key][0]), str(BACKDROP_SCENES[key][0]))
+		b.custom_minimum_size = Vector2(92, 74)
+		scene_grid.add_child(b)
+
+	_add_section_label(box, "Your pictures", "Make a Backdrop from your own picture: a photo, a drawing you scanned, or anything you made. It's cropped to fit and saved in your project, not online.")
+	picture_grid = GridContainer.new()
+	picture_grid.columns = 4
+	box.add_child(picture_grid)
+	var picture_row := HBoxContainer.new()
+	box.add_child(picture_row)
+	_add_button(picture_row, "Make a Backdrop...", "Use your own picture as the backdrop. It's cropped to fill the backdrop and saved in your project file.", _make_backdrop_pressed)
+	remove_picture_button = _add_button(picture_row, "Remove Picture", "Take the selected picture out of your project.", _remove_picture_pressed)
+
+	_add_section_label(box, "Green screen", "Pure green that lights and shadows don't change. In Premiere, the Ultra Key effect removes it so you can put any background behind your characters.")
+	var green := Image.create(28, 28, false, Image.FORMAT_RGB8)
+	green.fill(CHROMA_GREEN)
+	var green_button := _make_backdrop_button("green", ImageTexture.create_from_image(green), "Green Screen", "Green Screen")
+	green_button.expand_icon = false
+	green_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	box.add_child(green_button)
+
+	box.add_child(HSeparator.new())
+	var floor_row := HBoxContainer.new()
+	box.add_child(floor_row)
+	var floor_title := Label.new()
+	floor_title.text = "Floor:"
+	floor_title.tooltip_text = "The surface your characters stand on."
+	floor_title.mouse_filter = Control.MOUSE_FILTER_STOP
+	floor_row.add_child(floor_title)
+	floor_option = OptionButton.new()
+	floor_option.focus_mode = Control.FOCUS_NONE
+	floor_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	floor_option.tooltip_text = floor_title.tooltip_text
+	var floor_keys: Array = FLOORS.keys()
+	for i in floor_keys.size():
+		floor_option.add_item(str(FLOORS[floor_keys[i]][0]))
+		floor_option.set_item_tooltip(i, str(FLOORS[floor_keys[i]][1]))
+	floor_option.item_selected.connect(func(index: int) -> void:
+		if not backdrop_ui_updating:
+			_choose_floor(str(floor_keys[index])))
+	floor_row.add_child(floor_option)
+	_refresh_backdrop_panel()
+
+
+func _add_section_label(parent: Control, text: String, tip: String) -> void:
+	var label := Label.new()
+	label.text = text
+	label.tooltip_text = tip
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_color_override("font_color", Color(0.75, 0.77, 0.82))
+	parent.add_child(label)
+
+
+func _make_backdrop_button(key: String, icon: Texture2D, text: String, tip: String) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.toggle_mode = true
+	b.icon = icon
+	b.expand_icon = true
+	b.text = text
+	b.tooltip_text = tip
+	b.add_theme_font_size_override("font_size", 11)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	b.clip_text = true
+	b.pressed.connect(_choose_backdrop.bind(key))
+	backdrop_buttons[key] = b
+	return b
+
+
+## Shows the active shot's backdrop and floor, and rebuilds the student's picture buttons.
+func _refresh_backdrop_panel() -> void:
+	if backdrop_panel == null:
+		return
+	backdrop_ui_updating = true
+	backdrop_title.text = "BACKDROP AND FLOOR: SHOT %d" % (active_shot + 1)
+	# Picture buttons come and go with the student's pictures.
+	for key in backdrop_buttons.keys():
+		if str(key).begins_with("picture:"):
+			backdrop_buttons.erase(key)
+	for child in picture_grid.get_children():
+		picture_grid.remove_child(child)
+		child.queue_free()
+	for id in backdrop_pictures:
+		var key := "picture:" + str(id)
+		if not picture_thumbs.has(id):
+			var img := Image.new()
+			if img.load_jpg_from_buffer(Marshalls.base64_to_raw(str(backdrop_pictures[id]["b64"]))) != OK:
+				continue
+			img.resize(160, 90, Image.INTERPOLATE_BILINEAR)
+			picture_thumbs[id] = ImageTexture.create_from_image(img)
+		var b := _make_backdrop_button(key, picture_thumbs[id], str(backdrop_pictures[id]["name"]), "Your picture: %s" % backdrop_pictures[id]["name"])
+		b.custom_minimum_size = Vector2(92, 74)
+		picture_grid.add_child(b)
+	var current := str(_shot_set()["backdrop"])
+	for key in backdrop_buttons:
+		(backdrop_buttons[key] as Button).button_pressed = key == current
+	remove_picture_button.disabled = not current.begins_with("picture:")
+	floor_option.select(FLOORS.keys().find(str(_shot_set()["floor"])))
+	backdrop_ui_updating = false
 
 
 # ---------------------------------------------------------------- UI
@@ -3583,7 +4392,13 @@ func _build_ui() -> void:
 	cam_flow.add_child(lens_label)
 
 	_add_divider(cam_flow)
-	_add_group_label(cam_flow, "LIGHTS")
+	_add_group_label(cam_flow, "SET")
+	var backdrop_button := _make_button("Backdrop", "Choose this shot's backdrop (paper, a painted scene, your own picture, or green screen) and floor.")
+	backdrop_button.toggle_mode = true
+	backdrop_button.toggled.connect(func(on: bool) -> void:
+		backdrop_panel.visible = on
+		_refresh_backdrop_panel())
+	cam_flow.add_child(backdrop_button)
 	var lighting_button := _make_button("Lighting", "Set up this shot's key, fill, and back lights, or pick a mood. In Studio View, drag a lamp to move it.")
 	lighting_button.toggle_mode = true
 	lighting_button.toggled.connect(func(on: bool) -> void:
@@ -3628,7 +4443,8 @@ func _build_ui() -> void:
 		+ "Drag empty space, right-drag, or use arrow keys to look around (Studio View).\n" \
 		+ "Camera View (C): pose while looking through the shot camera.\n" \
 		+ "Unlock Camera (L), then use the camera tools, or grab the tripod in Studio View.\n" \
-		+ "Lighting: pick a mood, then adjust the key, fill, and back lights. Drag a lamp in Studio View to move it.\n" \
+		+ "Backdrop: pick paper, a painted scene, green screen, or Make a Backdrop from your own picture. Pick a floor too.\n" \
+		+ "Lighting: pick a mood, then adjust the key, fill, back, and background lights. Drag a lamp in Studio View to move it.\n" \
 		+ "    Lighting locks when you capture a shot's first frame, so every frame matches.\n" \
 		+ "Onion skin (O): see faint ghosts of your last 1 or 3 frames.\n" \
 		+ "Space: capture a frame. P: play this shot. Shift+P: play all shots. Ctrl+Z: undo.\n" \
@@ -3663,7 +4479,8 @@ func _build_ui() -> void:
 	style_box.custom_minimum_size = Vector2(230, 0)
 	style_panel.add_child(style_box)
 
-	# ---- Lighting panel (hidden until Lighting is pressed).
+	# ---- Backdrop and Lighting panels (hidden until their buttons are pressed).
+	_build_backdrop_panel(column)
 	_build_lighting_panel(column)
 
 	var spacer := Control.new()
@@ -3853,7 +4670,7 @@ func _project_data() -> Dictionary:
 	for i in shots.size():
 		var shot: Dictionary = shots[i]
 		shot_list.append({"label": shot["label"], "frames": shot["poses"],
-			"lighting": shot["lighting"], "light_locked": shot["light_locked"],
+			"lighting": shot["lighting"], "light_locked": shot["light_locked"], "set": shot["set"],
 			"working": current if i == active_shot else shot["working"]})
 	return {
 		"app": APP_NAME,
@@ -3866,6 +4683,8 @@ func _project_data() -> Dictionary:
 		"current": current,
 		"shots": shot_list,
 		"active_shot": active_shot,
+		"backdrop_pictures": backdrop_pictures,
+		"next_picture": next_picture,
 	}
 
 
@@ -3958,13 +4777,23 @@ func _apply_project(project: Dictionary) -> void:
 	export_name.text = str(project.get("name", "my-animation"))
 	_set_fps(int(project.get("fps", DEFAULT_FPS)))
 	_set_onion_layers(int(project.get("onion", 1)))
+	# Students' backdrop pictures come first, so shots can find theirs.
+	_clear_backdrop_pictures()
+	var pictures: Variant = project.get("backdrop_pictures", {})
+	if typeof(pictures) == TYPE_DICTIONARY:
+		for id in pictures:
+			var picture: Variant = (pictures as Dictionary)[id]
+			if typeof(picture) == TYPE_DICTIONARY and (picture as Dictionary).has("b64"):
+				backdrop_pictures[str(id)] = {"name": str((picture as Dictionary).get("name", "Picture")), "b64": str(picture["b64"])}
+	next_picture = maxi(int(project.get("next_picture", 1)), backdrop_pictures.size() + 1)
 	shots.clear()
 	for entry_value in project["shots"]:
 		if typeof(entry_value) != TYPE_DICTIONARY:
 			continue
 		var entry: Dictionary = entry_value
 		# Projects from before lighting get the default lighting, locked if the shot has frames.
-		var shot := _make_shot(str(entry.get("label", "")).left(SHOT_LABEL_MAX), _clean_lighting(entry.get("lighting")))
+		var shot := _make_shot(str(entry.get("label", "")).left(SHOT_LABEL_MAX), _clean_lighting(entry.get("lighting")),
+			_clean_set(entry.get("set")))
 		var poses: Array[Dictionary] = shot["poses"]
 		for pose in entry.get("frames", []):
 			if typeof(pose) == TYPE_DICTIONARY:
@@ -3987,8 +4816,9 @@ func _apply_project(project: Dictionary) -> void:
 	if not current.is_empty():
 		_apply_pose(current)
 	shots[active_shot]["working"] = {}
-	_apply_lighting(_lighting())
+	_apply_look(shots[active_shot])
 	_refresh_lighting_panel()
+	_refresh_backdrop_panel()
 	shot_label_edit.text = str(shots[active_shot]["label"])
 	_update_shot_title()
 	_update_frame_info()
@@ -4034,7 +4864,7 @@ func _rebuild_frames() -> void:
 	for shot in shots:
 		var poses: Array[Dictionary] = shot["poses"]
 		var textures: Array[ImageTexture] = shot["textures"]
-		_apply_lighting(shot["lighting"])
+		_apply_look(shot)
 		shot["relight"] = false
 		for pose in poses:
 			done += 1
@@ -4043,7 +4873,7 @@ func _rebuild_frames() -> void:
 			await RenderingServer.frame_post_draw
 			textures.append(ImageTexture.create_from_image(_keep_size(shot_viewport.get_texture().get_image())))
 	shot_camera.cull_mask = SHOT_PREVIEW_MASK
-	_apply_lighting(_lighting())
+	_apply_look(shots[active_shot])
 	capturing = false
 	busy_overlay.visible = false
 	_update_frame_info()
@@ -4059,12 +4889,14 @@ func _new_project() -> void:
 	shot_camera.global_transform = factory_camera
 	shot_camera.fov = factory_fov
 	_sync_camera()
+	_clear_backdrop_pictures()
 	shots.clear()
 	shots.append(_make_shot())
 	active_shot = 0
 	_bind_active_shot()
-	_apply_lighting(_lighting())
+	_apply_look(shots[active_shot])
 	_refresh_lighting_panel()
+	_refresh_backdrop_panel()
 	shot_label_edit.text = ""
 	_update_shot_title()
 	export_name.text = "my-animation"
@@ -4407,7 +5239,7 @@ func _end_render() -> void:
 	if not render_restore.is_empty():
 		_apply_pose(render_restore)
 	render_restore = {}
-	_apply_lighting(_lighting())
+	_apply_look(shots[active_shot])
 	capturing = false
 	busy_overlay.visible = false
 	_update_ghosts()
@@ -4419,7 +5251,7 @@ func _export_image(shot_index: int, frame_index: int, pixels: Vector2i) -> Image
 		var kept: ImageTexture = shots[shot_index]["textures"][frame_index]
 		return kept.get_image()
 	if render_lit_shot != shot_index:
-		_apply_lighting(shots[shot_index]["lighting"])
+		_apply_look(shots[shot_index])
 		render_lit_shot = shot_index
 	_apply_pose(shots[shot_index]["poses"][frame_index])
 	await RenderingServer.frame_post_draw
@@ -4567,6 +5399,7 @@ func _load_export_tools() -> bool:
 	JavaScriptBridge.eval(code, true)
 	js_callback = JavaScriptBridge.create_callback(_on_js_reply)
 	js_open_callback = JavaScriptBridge.create_callback(_on_js_file_opened)
+	js_image_callback = JavaScriptBridge.create_callback(_on_js_image_opened)
 	js_ready = JavaScriptBridge.get_interface("vcsExport") != null
 	return js_ready
 
